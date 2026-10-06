@@ -30,6 +30,7 @@ import { notifyNewOrder } from './notifications';
 import { CustomerOrder, PlanDuration } from '../types';
 
 export const app = express();
+const router = express.Router();
 
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
@@ -42,13 +43,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Initialize database on first call
-initDatabase().catch((err) => console.error('[APP] Database init error:', err));
+// Initialize database safely in background
+initDatabase().catch((err) => console.warn('[APP] Database init warning:', err));
 
 // -------------------------------------------------------------
 // 1. ADMIN AUTHENTICATION ENDPOINTS
 // -------------------------------------------------------------
-app.post('/api/admin/login', (req: Request, res: Response) => {
+router.post('/admin/login', (req: Request, res: Response) => {
   const { password } = req.body || {};
 
   if (!password || typeof password !== 'string') {
@@ -72,14 +73,14 @@ app.post('/api/admin/login', (req: Request, res: Response) => {
   });
 });
 
-app.get('/api/admin/verify', requireAdmin, (req: Request, res: Response) => {
+router.get('/admin/verify', requireAdmin, (req: Request, res: Response) => {
   res.json({ success: true, authenticated: true });
 });
 
 // -------------------------------------------------------------
 // 2. PAYMENT PROOF UPLOAD & SERVING
 // -------------------------------------------------------------
-app.post('/api/upload', async (req: Request, res: Response) => {
+router.post('/upload', async (req: Request, res: Response) => {
   try {
     const { image, filename } = req.body || {};
     if (!image || typeof image !== 'string') {
@@ -93,12 +94,12 @@ app.post('/api/upload', async (req: Request, res: Response) => {
     const proofUrl = await savePaymentProof(image, filename);
     res.json({ success: true, url: proofUrl });
   } catch (err: any) {
-    console.error('Error in /api/upload:', err);
+    console.error('Error in /upload:', err);
     res.status(500).json({ success: false, message: 'Failed to process image upload.' });
   }
 });
 
-app.get('/api/proofs/:id', async (req: Request, res: Response) => {
+router.get('/proofs/:id', async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
     const proof = await getPaymentProof(id);
@@ -123,9 +124,15 @@ app.get('/api/proofs/:id', async (req: Request, res: Response) => {
 // -------------------------------------------------------------
 // 3. ORDERS (ADMIN & PUBLIC WORKFLOWS)
 // -------------------------------------------------------------
+const DURATION_MULTIPLIERS: Record<string, number> = {
+  '1_month': 1.0,
+  '3_months': 2.7,
+  '6_months': 5.0,
+  '1_year': 9.0,
+};
 
 // Admin only: Get all customer orders
-app.get('/api/orders', requireAdmin, async (req: Request, res: Response) => {
+router.get('/orders', requireAdmin, async (req: Request, res: Response) => {
   try {
     const orders = await getOrders();
     res.json({ success: true, orders });
@@ -135,15 +142,8 @@ app.get('/api/orders', requireAdmin, async (req: Request, res: Response) => {
   }
 });
 
-// Public: Customer Checkout Order Submission with Server-Side Validation
-const DURATION_MULTIPLIERS: Record<string, number> = {
-  '1_month': 1.0,
-  '3_months': 2.7,
-  '6_months': 5.0,
-  '1_year': 9.0,
-};
-
-app.post('/api/orders', async (req: Request, res: Response) => {
+// Public: Customer Checkout Order Submission
+router.post('/orders', async (req: Request, res: Response) => {
   try {
     const {
       customerEmail,
@@ -208,7 +208,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
       verifiedItems.push({
         product: dbProduct,
         duration,
-        accountType: item.accountType || dbProduct.allowedAccountTypes[0] || 'private_account',
+        accountType: item.accountType || (dbProduct.allowedAccountTypes && dbProduct.allowedAccountTypes[0]) || 'private_account',
         quantity,
         priceUSD: verifiedUnitPrice,
       });
@@ -272,7 +272,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
       await createCoupon({
         ...appliedCouponObj,
         usageCount: appliedCouponObj.usageCount + 1,
-      });
+      }).catch((e) => console.warn('Coupon count error:', e));
     }
 
     // Add to live activations feed for storefront social proof
@@ -296,10 +296,10 @@ app.post('/api/orders', async (req: Request, res: Response) => {
       state: states[randIdx],
       minutesAgo: 1,
       planDuration: firstItem?.duration ? String(firstItem.duration).replace('_', ' ') : '1 Month',
-    });
+    }).catch((e) => console.warn('Activation feed error:', e));
 
     // Dispatch asynchronous order alert notification
-    notifyNewOrder(newOrder).catch((e) => console.error('Notification dispatch error:', e));
+    notifyNewOrder(newOrder).catch((e) => console.warn('Notification dispatch error:', e));
 
     console.log(`[ORDER CREATED] ${orderId} by ${cleanEmail} ($${verifiedTotalUSD} USD)`);
     res.status(201).json({ success: true, order: newOrder });
@@ -310,7 +310,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
 });
 
 // Order Tracking: Secure lookup requiring Order ID + Matching Customer Email
-app.get('/api/orders/track', async (req: Request, res: Response) => {
+router.get('/orders/track', async (req: Request, res: Response) => {
   try {
     const rawQuery = String(req.query.query || '').trim();
     const orderIdParam = String(req.query.orderId || '').trim();
@@ -318,7 +318,6 @@ app.get('/api/orders/track', async (req: Request, res: Response) => {
     const authHeader = req.headers.authorization || (req.headers['x-admin-token'] as string);
     const isAdmin = validateAdminToken(authHeader);
 
-    // If query string has single param (e.g. RYV-94821-US)
     const targetOrderId = (orderIdParam || rawQuery).toUpperCase();
     const targetEmail = (emailParam || (rawQuery.includes('@') ? rawQuery : '')).toLowerCase();
 
@@ -344,10 +343,8 @@ app.get('/api/orders/track', async (req: Request, res: Response) => {
     }
 
     // 2. Customer Tracking: Require verification
-    // Find order by ID first
     let match = allOrders.find((o) => o.orderId.toUpperCase() === targetOrderId);
 
-    // If searched by email only without order ID
     if (!match && targetEmail && !orderIdParam) {
       match = allOrders.find((o) => o.customerEmail.toLowerCase() === targetEmail);
     }
@@ -367,8 +364,6 @@ app.get('/api/orders/track', async (req: Request, res: Response) => {
       });
     }
 
-    // If no email was provided and query is solely Order ID:
-    // To prevent arbitrary enumeration of credentials, if credentials exist, require customer email match!
     if (!targetEmail && match.credentials?.licenseKey) {
       return res.status(401).json({
         success: false,
@@ -387,7 +382,7 @@ app.get('/api/orders/track', async (req: Request, res: Response) => {
 });
 
 // Admin only: Update order status or credentials
-app.patch('/api/orders/:id', requireAdmin, async (req: Request, res: Response) => {
+router.patch('/orders/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     const orderId = req.params.id;
     const { status, credentials, isNew, licenseKey, accountEmail, deliveryInstructions } = req.body || {};
@@ -411,15 +406,14 @@ app.patch('/api/orders/:id', requireAdmin, async (req: Request, res: Response) =
   }
 });
 
-// Admin only: Delete order
-app.delete('/api/orders/:id', requireAdmin, async (req: Request, res: Response) => {
+router.delete('/orders/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     const orderId = req.params.id;
-    const ok = await deleteOrder(orderId);
-    if (!ok) {
-      return res.status(404).json({ success: false, message: 'Order not found.' });
+    const deleted = await deleteOrder(orderId);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Order not found or already deleted.' });
     }
-    res.json({ success: true, message: 'Order deleted successfully.' });
+    res.json({ success: true, message: `Order ${orderId} successfully removed.` });
   } catch (err: any) {
     console.error('Error deleting order:', err);
     res.status(500).json({ success: false, message: 'Error deleting order: ' + err.message });
@@ -427,9 +421,9 @@ app.delete('/api/orders/:id', requireAdmin, async (req: Request, res: Response) 
 });
 
 // -------------------------------------------------------------
-// 4. PRODUCTS (PUBLIC READ, ADMIN WRITE)
+// 4. PRODUCTS ENDPOINTS
 // -------------------------------------------------------------
-app.get('/api/products', async (req: Request, res: Response) => {
+router.get('/products', async (req: Request, res: Response) => {
   try {
     const products = await getProducts();
     res.json({ success: true, products });
@@ -438,24 +432,28 @@ app.get('/api/products', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/products', requireAdmin, async (req: Request, res: Response) => {
+router.post('/products', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const newProduct = req.body;
-    if (!newProduct || !newProduct.name || !newProduct.priceUSD) {
-      return res.status(400).json({ success: false, message: 'Product name and price are required.' });
+    const prodData = req.body;
+    if (!prodData || !prodData.name || !prodData.priceUSD) {
+      return res.status(400).json({ success: false, message: 'Invalid product data.' });
     }
 
-    const created = await createProduct(newProduct);
-    res.status(201).json({ success: true, product: created });
+    const newProd = await createProduct({
+      ...prodData,
+      id: prodData.id || `custom-${Date.now()}`,
+    });
+    res.status(201).json({ success: true, product: newProd });
   } catch (err: any) {
     res.status(500).json({ success: false, message: 'Failed to create product: ' + err.message });
   }
 });
 
-app.put('/api/products/:id', requireAdmin, async (req: Request, res: Response) => {
+router.put('/products/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
-    const updated = await updateProduct(id, req.body);
+    const prodId = req.params.id;
+    const updates = req.body;
+    const updated = await updateProduct(prodId, updates);
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Product not found.' });
     }
@@ -465,23 +463,23 @@ app.put('/api/products/:id', requireAdmin, async (req: Request, res: Response) =
   }
 });
 
-app.delete('/api/products/:id', requireAdmin, async (req: Request, res: Response) => {
+router.delete('/products/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
-    const ok = await deleteProduct(id);
-    if (!ok) {
+    const prodId = req.params.id;
+    const deleted = await deleteProduct(prodId);
+    if (!deleted) {
       return res.status(404).json({ success: false, message: 'Product not found.' });
     }
-    res.json({ success: true, message: 'Product removed.' });
+    res.json({ success: true, message: `Product ${prodId} removed.` });
   } catch (err: any) {
     res.status(500).json({ success: false, message: 'Failed to delete product: ' + err.message });
   }
 });
 
 // -------------------------------------------------------------
-// 5. COUPONS (PUBLIC READ, ADMIN WRITE)
+// 5. COUPONS ENDPOINTS
 // -------------------------------------------------------------
-app.get('/api/coupons', async (req: Request, res: Response) => {
+router.get('/coupons', async (req: Request, res: Response) => {
   try {
     const coupons = await getCoupons();
     res.json({ success: true, coupons });
@@ -490,20 +488,20 @@ app.get('/api/coupons', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/coupons', requireAdmin, async (req: Request, res: Response) => {
+router.post('/coupons', requireAdmin, async (req: Request, res: Response) => {
   try {
-    const newCoupon = req.body;
-    if (!newCoupon || !newCoupon.code || !newCoupon.discountPercent) {
-      return res.status(400).json({ success: false, message: 'Coupon code and discount are required.' });
+    const coupon = req.body;
+    if (!coupon || !coupon.code || !coupon.discountPercent) {
+      return res.status(400).json({ success: false, message: 'Valid coupon details required.' });
     }
-    const created = await createCoupon(newCoupon);
+    const created = await createCoupon(coupon);
     res.status(201).json({ success: true, coupon: created });
   } catch (err: any) {
     res.status(500).json({ success: false, message: 'Failed to create coupon: ' + err.message });
   }
 });
 
-app.patch('/api/coupons/:code', requireAdmin, async (req: Request, res: Response) => {
+router.patch('/coupons/:code', requireAdmin, async (req: Request, res: Response) => {
   try {
     const code = req.params.code;
     const toggled = await toggleCoupon(code);
@@ -516,23 +514,23 @@ app.patch('/api/coupons/:code', requireAdmin, async (req: Request, res: Response
   }
 });
 
-app.delete('/api/coupons/:code', requireAdmin, async (req: Request, res: Response) => {
+router.delete('/coupons/:code', requireAdmin, async (req: Request, res: Response) => {
   try {
     const code = req.params.code;
-    const ok = await deleteCoupon(code);
-    if (!ok) {
+    const deleted = await deleteCoupon(code);
+    if (!deleted) {
       return res.status(404).json({ success: false, message: 'Coupon not found.' });
     }
-    res.json({ success: true, message: 'Coupon deleted.' });
+    res.json({ success: true, message: `Coupon ${code} deleted.` });
   } catch (err: any) {
     res.status(500).json({ success: false, message: 'Failed to delete coupon: ' + err.message });
   }
 });
 
 // -------------------------------------------------------------
-// 6. REVIEWS & ACTIVATIONS
+// 6. REVIEWS & ACTIVATIONS ENDPOINTS
 // -------------------------------------------------------------
-app.get('/api/reviews', async (req: Request, res: Response) => {
+router.get('/reviews', async (req: Request, res: Response) => {
   try {
     const reviews = await getReviews();
     res.json({ success: true, reviews });
@@ -541,7 +539,7 @@ app.get('/api/reviews', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/activations', async (req: Request, res: Response) => {
+router.get('/activations', async (req: Request, res: Response) => {
   try {
     const activations = await getActivations();
     res.json({ success: true, activations });
@@ -550,9 +548,12 @@ app.get('/api/activations', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/activations', requireAdmin, async (req: Request, res: Response) => {
+router.post('/activations', requireAdmin, async (req: Request, res: Response) => {
   try {
     const act = req.body;
+    if (!act || !act.productName) {
+      return res.status(400).json({ success: false, message: 'Valid activation details required.' });
+    }
     const created = await createActivation(act);
     res.status(201).json({ success: true, activation: created });
   } catch (err: any) {
@@ -560,23 +561,23 @@ app.post('/api/activations', requireAdmin, async (req: Request, res: Response) =
   }
 });
 
-app.delete('/api/activations/:id', requireAdmin, async (req: Request, res: Response) => {
+router.delete('/activations/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
-    const ok = await deleteActivation(id);
-    if (!ok) {
+    const deleted = await deleteActivation(id);
+    if (!deleted) {
       return res.status(404).json({ success: false, message: 'Activation not found.' });
     }
-    res.json({ success: true, message: 'Activation deleted.' });
+    res.json({ success: true, message: `Activation ${id} deleted.` });
   } catch (err: any) {
     res.status(500).json({ success: false, message: 'Failed to delete activation: ' + err.message });
   }
 });
 
 // -------------------------------------------------------------
-// 7. ANNOUNCEMENT BAR
+// 7. ANNOUNCEMENT ENDPOINTS
 // -------------------------------------------------------------
-app.get('/api/announcement', async (req: Request, res: Response) => {
+router.get('/announcement', async (req: Request, res: Response) => {
   try {
     const text = await getAnnouncement();
     res.json({ success: true, announcement: text });
@@ -585,7 +586,7 @@ app.get('/api/announcement', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/announcement', requireAdmin, async (req: Request, res: Response) => {
+router.post('/announcement', requireAdmin, async (req: Request, res: Response) => {
   try {
     const text = req.body?.text || '';
     const updated = await updateAnnouncement(text);
@@ -598,20 +599,24 @@ app.post('/api/announcement', requireAdmin, async (req: Request, res: Response) 
 // -------------------------------------------------------------
 // 8. HEALTH STATUS
 // -------------------------------------------------------------
-app.get('/api/health', async (req: Request, res: Response) => {
+router.get('/health', async (req: Request, res: Response) => {
   try {
     const orders = await getOrders();
     res.json({
       status: 'ok',
       service: 'Ryvora Digital Production Backend',
       ordersCount: orders.length,
-      database: process.env.POSTGRES_URL || process.env.DATABASE_URL ? 'postgresql' : 'persistent-store',
+      database: process.env.POSTGRES_URL || process.env.DATABASE_URL ? 'postgresql' : 'serverless-store',
       time: new Date().toISOString(),
     });
   } catch (err: any) {
     res.status(500).json({ status: 'error', message: err.message });
   }
 });
+
+// MOUNT ROUTER: Handles both /api/* and rewritten /* requests
+app.use('/api', router);
+app.use(router);
 
 // -------------------------------------------------------------
 // 9. GLOBAL JSON ERROR HANDLER
@@ -624,4 +629,3 @@ app.use((err: any, req: Request, res: Response, _next: any) => {
     message: err.message || 'Internal server error occurred.',
   });
 });
-
