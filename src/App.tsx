@@ -23,6 +23,47 @@ import { Product, CartItem, PlanDuration, AccountType, CustomerOrder, CurrencyCo
 import { PRODUCTS } from './data/products';
 import { REVIEWS, LIVE_ACTIVATIONS } from './data/reviews';
 import { Check } from 'lucide-react';
+import {
+  apiGetOrders,
+  apiGetProducts,
+  apiGetCoupons,
+  apiGetActivations,
+  apiGetAnnouncement,
+  apiUpdateAnnouncement,
+} from './utils/api';
+
+function playNotificationChime() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const now = ctx.currentTime;
+
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(587.33, now); // D5
+    gain1.gain.setValueAtTime(0.2, now);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.35);
+
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(880, now + 0.15); // A5
+    gain2.gain.setValueAtTime(0.25, now + 0.15);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.15);
+    osc2.stop(now + 0.7);
+  } catch (err) {
+    console.debug('Audio chime muted/blocked:', err);
+  }
+}
 
 const INITIAL_COUPONS: PromoCoupon[] = [
   { code: 'USA10', discountPercent: 10, description: '10% USA Community Welcome Discount', active: true, usageCount: 142 },
@@ -220,6 +261,69 @@ export default function App() {
       console.error(e);
     }
   }, [announcementText]);
+
+  // Initial sync from backend + real-time live order polling
+  useEffect(() => {
+    let mounted = true;
+
+    async function initialFetch() {
+      try {
+        const [serverOrders, serverProds, serverCoups, serverActs, serverAnn] = await Promise.all([
+          apiGetOrders(),
+          apiGetProducts(),
+          apiGetCoupons(),
+          apiGetActivations(),
+          apiGetAnnouncement(),
+        ]);
+
+        if (!mounted) return;
+        if (serverOrders && serverOrders.length > 0) setOrders(serverOrders);
+        if (serverProds && serverProds.length > 0) setProducts(serverProds);
+        if (serverCoups && serverCoups.length > 0) setCoupons(serverCoups);
+        if (serverActs && serverActs.length > 0) setActivations(serverActs);
+        if (serverAnn !== null && serverAnn !== undefined) setAnnouncementText(serverAnn);
+      } catch (e) {
+        console.warn('Initial server sync warning:', e);
+      }
+    }
+
+    initialFetch();
+
+    // 3.5s real-time live order poller
+    const interval = setInterval(async () => {
+      try {
+        const freshOrders = await apiGetOrders();
+        if (!mounted || !freshOrders || freshOrders.length === 0) return;
+
+        setOrders((prev) => {
+          const prevMap = new Map(prev.map((o) => [o.orderId, o]));
+          const newOrders = freshOrders.filter((o) => !prevMap.has(o.orderId));
+
+          if (newOrders.length > 0) {
+            const latest = newOrders[0];
+            playNotificationChime();
+            showToast(`🔔 New Order Received: #${latest.orderId} (${latest.customerEmail}) - $${latest.totalUSD.toFixed(2)}`);
+            return freshOrders;
+          }
+
+          // Check if any status updated
+          const hasChanges = freshOrders.some((fo) => {
+            const old = prevMap.get(fo.orderId);
+            return !old || old.status !== fo.status || old.credentials?.licenseKey !== fo.credentials?.licenseKey;
+          });
+
+          return hasChanges ? freshOrders : prev;
+        });
+      } catch (err) {
+        // Ignore polling transient errors
+      }
+    }, 3500);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Add to cart handler
   const handleAddToCart = (

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Search, X, CheckCircle2, Clock, Mail, ShieldCheck, Key, AlertCircle } from 'lucide-react';
+import { Search, X, CheckCircle2, Clock, Mail, ShieldCheck, Key, AlertCircle, Loader2 } from 'lucide-react';
 import { CustomerOrder } from '../types';
+import { apiTrackOrder } from '../utils/api';
 
 interface OrderTrackerModalProps {
   isOpen: boolean;
@@ -14,14 +15,27 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({ isOpen, on
   const [query, setQuery] = useState('');
   const [trackedOrder, setTrackedOrder] = useState<CustomerOrder | null>(null);
   const [searched, setSearched] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     const clean = query.trim().toLowerCase();
     if (!clean) return;
 
+    setLoading(true);
     setSearched(true);
-    // Find matching order in real store orders
+
+    try {
+      const serverOrder = await apiTrackOrder(clean);
+      if (serverOrder) {
+        setTrackedOrder(serverOrder);
+        setLoading(false);
+        return;
+      }
+    } catch {
+      // Continue to local match
+    }
+
     const match = orders.find(
       (o) =>
         o.orderId.toLowerCase() === clean ||
@@ -30,6 +44,7 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({ isOpen, on
     );
 
     setTrackedOrder(match || null);
+    setLoading(false);
   };
 
   return (

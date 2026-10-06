@@ -26,6 +26,19 @@ import {
 import { Product, CustomerOrder, CustomerReview, LiveActivation, PromoCoupon, CategoryId } from '../../types';
 import { RyvoraLogo } from '../RyvoraLogo';
 import { CATEGORIES } from '../../data/products';
+import {
+  apiUpdateOrder,
+  apiDeleteOrder,
+  apiUpdateProduct,
+  apiCreateProduct,
+  apiDeleteProduct,
+  apiCreateCoupon,
+  apiToggleCoupon,
+  apiDeleteCoupon,
+  apiAddActivation,
+  apiDeleteActivation,
+  apiUpdateAnnouncement,
+} from '../../utils/api';
 
 interface AdminDashboardProps {
   products: Product[];
@@ -212,15 +225,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Dispatch Order
   const handleDispatchOrder = (orderId: string) => {
+    const assignedKey = customKey.trim() || `RYV-DISPATCH-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    const newCreds = {
+      licenseKey: assignedKey,
+      instructions: 'License provisioned manually via Ryvora Admin Console.',
+    };
+
     const updated = orders.map((o) => {
       if (o.orderId === orderId) {
         return {
           ...o,
           status: 'delivered' as const,
           credentials: {
-            licenseKey: customKey.trim() || `RYV-DISPATCH-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
+            ...newCreds,
             accountEmail: o.customerEmail,
-            instructions: 'License provisioned manually via Ryvora Admin Console.',
           },
         };
       }
@@ -228,6 +246,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
 
     onUpdateOrders(updated);
+    apiUpdateOrder(orderId, { status: 'delivered', credentials: newCreds }).catch(console.error);
     setDispatchOrderId(null);
     setCustomKey('');
   };
@@ -242,9 +261,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           
           <div className="h-6 w-px bg-slate-800 hidden sm:block" />
           
-          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-xs font-bold font-mono">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span>COMMAND CONSOLE · USA REGION</span>
+          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-bold font-mono">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>LIVE CLOUD BACKEND · {orders.length} ORDERS SYNCED</span>
           </div>
         </div>
 
@@ -368,6 +387,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Content Panel */}
         <main className="flex-1 min-w-0">
           
+          {/* Real-time Live Order Arrival Banner */}
+          {orders.length > 0 && orders[0].createdAt.includes('Today') && (
+            <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-cyan-950/60 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[0_0_25px_rgba(16,185,129,0.2)] animate-in fade-in">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg shrink-0">
+                  🔔
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                    <span>Live Customer Order: #{orders[0].orderId}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 uppercase font-mono font-bold">
+                      {orders[0].status}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Customer: <strong className="text-cyan-300 font-mono">{orders[0].customerEmail}</strong> · Total: <strong className="text-emerald-400">${orders[0].totalUSD.toFixed(2)}</strong> · {orders[0].items.length} item(s) · {orders[0].createdAt}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveTab('orders')}
+                className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shrink-0 cursor-pointer shadow-md"
+              >
+                Inspect Order Details →
+              </button>
+            </div>
+          )}
+
           {/* TAB 1: ANALYTICS OVERVIEW */}
           {activeTab === 'analytics' && (
             <div className="space-y-6">
