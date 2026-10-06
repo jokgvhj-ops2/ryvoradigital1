@@ -1,0 +1,8 @@
+{
+  "name": "Remix Ryvora Digital - Premium Digital Tools \u0026 AI Subscriptions",
+  "description": "USA\u0027s premier destination for genuine discounted digital tools, AI subscriptions, creative suites, and developer licenses with instant delivery and full replacement warranty.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
