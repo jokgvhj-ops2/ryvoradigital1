@@ -20,8 +20,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Authorized staff passcodes
-    if (password.trim() === 'ryvora2026' || password.trim() === 'admin' || password.trim() === '1234') {
+    // Authorized staff passcode
+    if (password.trim() === 'bsse5038' || password.trim().toLowerCase() === 'bsse5038') {
       setError('');
       onLoginSuccess();
       onClose();
