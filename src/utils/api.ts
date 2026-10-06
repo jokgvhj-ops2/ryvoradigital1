@@ -109,8 +109,20 @@ export async function apiUploadProof(base64Data: string, filename?: string): Pro
   });
 
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.message || `Failed to upload payment proof (Status ${res.status})`);
+    let message = '';
+    try {
+      const rawText = await res.text();
+      try {
+        const errData = JSON.parse(rawText);
+        if (errData && errData.message) message = errData.message;
+      } catch {
+        const stripped = rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (stripped && stripped.length > 3) message = stripped.substring(0, 200);
+      }
+    } catch {
+      // fallback
+    }
+    throw new Error(message || `Failed to upload payment proof (Status ${res.status})`);
   }
 
   const data = await res.json();
@@ -135,15 +147,26 @@ export async function apiCreateOrder(orderPayload: {
   if (!res.ok) {
     let message = '';
     try {
-      const errData = await res.json();
-      if (errData && errData.message) {
-        message = errData.message;
+      const rawText = await res.text();
+      try {
+        const errData = JSON.parse(rawText);
+        if (errData && errData.message) {
+          message = errData.message;
+        }
+      } catch {
+        const stripped = rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (stripped && stripped.length > 3) {
+          message = stripped.substring(0, 220);
+        }
       }
     } catch {
+      // fallback
+    }
+    if (!message) {
       message = `Server responded with status ${res.status} (${res.statusText || 'Error'})`;
     }
-    console.error('[API] Order submission error:', { status: res.status, message });
-    throw new Error(message || 'Failed to submit order to production database');
+    console.error('[API] Order submission error details:', { status: res.status, message });
+    throw new Error(message);
   }
 
   const data = await res.json();

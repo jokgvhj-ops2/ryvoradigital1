@@ -612,3 +612,16 @@ app.get('/api/health', async (req: Request, res: Response) => {
     res.status(500).json({ status: 'error', message: err.message });
   }
 });
+
+// -------------------------------------------------------------
+// 9. GLOBAL JSON ERROR HANDLER
+// -------------------------------------------------------------
+app.use((err: any, req: Request, res: Response, _next: any) => {
+  console.error('[API SERVER ERROR]', err);
+  const status = typeof err.status === 'number' ? err.status : typeof err.statusCode === 'number' ? err.statusCode : 500;
+  res.status(status).json({
+    success: false,
+    message: err.message || 'Internal server error occurred.',
+  });
+});
+

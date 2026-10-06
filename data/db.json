@@ -918,6 +918,357 @@
   ],
   "orders": [
     {
+      "orderId": "RYV-14268-US",
+      "customerEmail": "customer.live@test.com",
+      "customerPhone": "+12025550192",
+      "items": [
+        {
+          "product": {
+            "id": "chatgpt-plus",
+            "name": "ChatGPT Plus & Team",
+            "tagline": "Access OpenAI with GPT-4o, o1-preview, Canvas & Advanced Voice Mode",
+            "category": "ai",
+            "categoryLabel": "AI TOOLS",
+            "iconName": "Bot",
+            "brandColor": "#10A37F",
+            "accentGlow": "rgba(16, 163, 127, 0.25)",
+            "rating": 4.9,
+            "reviewsCount": 340,
+            "features": [
+              "Priority access to GPT-4o, OpenAI o1 reasoning model & Canvas",
+              "Ultra high-definition DALL-E 3 image generation & Python sandbox",
+              "100% Private dedicated account or workspace invite on personal email"
+            ],
+            "retailPriceUSD": 20,
+            "priceUSD": 8.99,
+            "inStock": true,
+            "popular": true,
+            "featured": true,
+            "badge": "BESTSELLER",
+            "allowedAccountTypes": [
+              "private_account",
+              "workspace_invite"
+            ],
+            "description": "Get full unthrottled access to OpenAI ChatGPT Plus. Includes ChatGPT search, advanced memory, custom GPT creation, image generation via DALL-E 3, and high token capacity.",
+            "deliveryTime": "Instant (2-5 mins)",
+            "warranty": "Full 30-Day Auto-Replacement Warranty"
+          },
+          "duration": "1_month",
+          "accountType": "private_account",
+          "quantity": 1,
+          "priceUSD": 8.99
+        }
+      ],
+      "subtotalUSD": 8.99,
+      "discountUSD": 0.9,
+      "totalUSD": 8.09,
+      "coupon": "USA10",
+      "paymentMethod": "Crypto USDT (TRC20 Network)",
+      "paymentProof": "/api/proofs/proof-1791297378016-pumxw",
+      "transactionId": "USDT-098124",
+      "status": "processing",
+      "createdAt": "Today, 02:39 PM (Oct 6, 2026)",
+      "isNew": true
+    },
+    {
+      "orderId": "RYV-94349-US",
+      "customerEmail": "user@test.com",
+      "items": [
+        {
+          "product": {
+            "id": "cursor-ai",
+            "name": "Cursor AI Pro",
+            "tagline": "The ultimate AI-first code editor with Claude 3.5 Sonnet & GPT-4o",
+            "category": "development",
+            "categoryLabel": "DEVELOPMENT",
+            "iconName": "Terminal",
+            "brandColor": "#38BDF8",
+            "accentGlow": "rgba(56, 189, 248, 0.25)",
+            "rating": 5,
+            "reviewsCount": 194,
+            "features": [
+              "Unlimited high-speed AI tab autocompletions & multi-line edits",
+              "Fast premium requests for Claude 3.5 Sonnet and GPT-4o models",
+              "Full codebase indexing, semantic symbol search & terminal AI"
+            ],
+            "retailPriceUSD": 20,
+            "priceUSD": 10.99,
+            "inStock": true,
+            "popular": true,
+            "featured": true,
+            "badge": "DEV FAVORITE",
+            "allowedAccountTypes": [
+              "private_account"
+            ],
+            "description": "Engineered for software engineers who build fast. Built on VS Code, Cursor allows real-time codebase refactoring, terminal agent execution, and instantaneous smart diffs.",
+            "deliveryTime": "Instant (3-5 mins)",
+            "warranty": "30-Day Active Renewal Warranty"
+          },
+          "duration": "1_month",
+          "accountType": "private_account",
+          "quantity": 1,
+          "priceUSD": 10.99
+        }
+      ],
+      "subtotalUSD": 10.99,
+      "discountUSD": 0,
+      "totalUSD": 10.99,
+      "paymentMethod": "Apple Pay / Zelle / Cash App",
+      "paymentProof": "/api/proofs/proof-1791297378016-pumxw",
+      "status": "processing",
+      "createdAt": "Today, 02:36 PM (Oct 6, 2026)",
+      "isNew": true
+    },
+    {
+      "orderId": "RYV-32010-US",
+      "customerEmail": "user@test.com",
+      "items": [
+        {
+          "product": {
+            "id": "canva-pro",
+            "name": "Canva Pro Enterprise",
+            "tagline": "Unlock 100M+ premium stock assets, Brand Kit & Magic Studio AI tools",
+            "category": "design",
+            "categoryLabel": "DESIGN",
+            "iconName": "Palette",
+            "brandColor": "#00C4CC",
+            "accentGlow": "rgba(0, 196, 204, 0.25)",
+            "rating": 5,
+            "reviewsCount": 412,
+            "features": [
+              "Access 100+ Million premium stock photos, 4K videos & audio tracks",
+              "Full Magic Studio AI: Background Remover, Magic Eraser & Magic Switch",
+              "Activated directly on your own personal Canva email account"
+            ],
+            "retailPriceUSD": 14.99,
+            "priceUSD": 3.99,
+            "inStock": true,
+            "popular": true,
+            "featured": true,
+            "badge": "TOP VALUE",
+            "allowedAccountTypes": [
+              "workspace_invite",
+              "private_account"
+            ],
+            "description": "Transform your design workflow. Canva Pro unlocked on your personal account. Zero design files shared; 100% private folders and Brand Kit support.",
+            "deliveryTime": "Instant (1-3 mins)",
+            "warranty": "Full 1-Year Replacement Warranty"
+          },
+          "duration": "1_month",
+          "accountType": "workspace_invite",
+          "quantity": 1,
+          "priceUSD": 3.99
+        }
+      ],
+      "subtotalUSD": 3.99,
+      "discountUSD": 0,
+      "totalUSD": 3.99,
+      "paymentMethod": "Apple Pay / Zelle / Cash App",
+      "paymentProof": "/api/proofs/proof-1791297378016-pumxw",
+      "status": "processing",
+      "createdAt": "Today, 02:36 PM (Oct 6, 2026)",
+      "isNew": true
+    },
+    {
+      "orderId": "RYV-20382-US",
+      "customerEmail": "user@test.com",
+      "items": [
+        {
+          "product": {
+            "id": "midjourney-pro",
+            "name": "Midjourney v6.1 Pro",
+            "tagline": "Cinematic AI image generation via Discord with Fast GPU Hours & Stealth Mode",
+            "category": "ai",
+            "categoryLabel": "AI TOOLS",
+            "iconName": "Image",
+            "brandColor": "#3B82F6",
+            "accentGlow": "rgba(59, 130, 246, 0.25)",
+            "rating": 5,
+            "reviewsCount": 220,
+            "features": [
+              "30 Fast GPU hours per month with unlimited Relax GPU mode",
+              "Stealth Mode: Keep your generated images private from community gallery",
+              "Concurrent fast jobs and ultra-high resolution creative upscaling"
+            ],
+            "retailPriceUSD": 30,
+            "priceUSD": 12.99,
+            "inStock": true,
+            "popular": true,
+            "featured": true,
+            "allowedAccountTypes": [
+              "private_account",
+              "dedicated_profile"
+            ],
+            "description": "The world benchmark for photorealistic AI art and commercial advertising generation. Delivered as a dedicated Discord bot integration or private account.",
+            "deliveryTime": "Instant (5-10 mins)",
+            "warranty": "30-Day Full Replacement Warranty"
+          },
+          "duration": "1_month",
+          "accountType": "private_account",
+          "quantity": 1,
+          "priceUSD": 12.99
+        }
+      ],
+      "subtotalUSD": 12.99,
+      "discountUSD": 0,
+      "totalUSD": 12.99,
+      "paymentMethod": "Apple Pay / Zelle / Cash App",
+      "paymentProof": "/api/proofs/proof-1791297378016-pumxw",
+      "status": "processing",
+      "createdAt": "Today, 02:36 PM (Oct 6, 2026)",
+      "isNew": true
+    },
+    {
+      "orderId": "RYV-35790-US",
+      "customerEmail": "user@test.com",
+      "items": [
+        {
+          "product": {
+            "id": "adobe-creative-cloud",
+            "name": "Adobe Creative Cloud",
+            "tagline": "All 20+ desktop creative apps including Photoshop, Illustrator & Premiere",
+            "category": "design",
+            "categoryLabel": "DESIGN",
+            "iconName": "Layers",
+            "brandColor": "#FA0F00",
+            "accentGlow": "rgba(250, 15, 0, 0.25)",
+            "rating": 5,
+            "reviewsCount": 285,
+            "features": [
+              "Full suite of 20+ official Adobe desktop & web applications",
+              "1,000 monthly generative AI credits for Firefly & Photoshop Generative Fill",
+              "Private account login valid on 2 concurrent devices (Mac / Windows)"
+            ],
+            "retailPriceUSD": 59.99,
+            "priceUSD": 19.99,
+            "inStock": true,
+            "popular": true,
+            "featured": true,
+            "badge": "POPULAR",
+            "allowedAccountTypes": [
+              "private_account",
+              "workspace_invite"
+            ],
+            "description": "Official Adobe Creative Cloud All Apps membership. Includes Photoshop, Illustrator, InDesign, Premiere Pro, After Effects, Lightroom, Acrobat Pro DC, and Adobe Fonts.",
+            "deliveryTime": "Instant (3-7 mins)",
+            "warranty": "Full Duration Warranty Guarantee"
+          },
+          "duration": "1_month",
+          "accountType": "private_account",
+          "quantity": 1,
+          "priceUSD": 19.99
+        }
+      ],
+      "subtotalUSD": 19.99,
+      "discountUSD": 0,
+      "totalUSD": 19.99,
+      "paymentMethod": "Apple Pay / Zelle / Cash App",
+      "paymentProof": "/api/proofs/proof-1791297378016-pumxw",
+      "status": "processing",
+      "createdAt": "Today, 02:36 PM (Oct 6, 2026)",
+      "isNew": true
+    },
+    {
+      "orderId": "RYV-56535-US",
+      "customerEmail": "user@test.com",
+      "items": [
+        {
+          "product": {
+            "id": "chatgpt-plus",
+            "name": "ChatGPT Plus & Team",
+            "tagline": "Access OpenAI with GPT-4o, o1-preview, Canvas & Advanced Voice Mode",
+            "category": "ai",
+            "categoryLabel": "AI TOOLS",
+            "iconName": "Bot",
+            "brandColor": "#10A37F",
+            "accentGlow": "rgba(16, 163, 127, 0.25)",
+            "rating": 4.9,
+            "reviewsCount": 340,
+            "features": [
+              "Priority access to GPT-4o, OpenAI o1 reasoning model & Canvas",
+              "Ultra high-definition DALL-E 3 image generation & Python sandbox",
+              "100% Private dedicated account or workspace invite on personal email"
+            ],
+            "retailPriceUSD": 20,
+            "priceUSD": 8.99,
+            "inStock": true,
+            "popular": true,
+            "featured": true,
+            "badge": "BESTSELLER",
+            "allowedAccountTypes": [
+              "private_account",
+              "workspace_invite"
+            ],
+            "description": "Get full unthrottled access to OpenAI ChatGPT Plus. Includes ChatGPT search, advanced memory, custom GPT creation, image generation via DALL-E 3, and high token capacity.",
+            "deliveryTime": "Instant (2-5 mins)",
+            "warranty": "Full 30-Day Auto-Replacement Warranty"
+          },
+          "duration": "1_month",
+          "accountType": "private_account",
+          "quantity": 1,
+          "priceUSD": 8.99
+        }
+      ],
+      "subtotalUSD": 8.99,
+      "discountUSD": 0,
+      "totalUSD": 8.99,
+      "paymentMethod": "Credit/Debit Card (Stripe USA / Wire)",
+      "paymentProof": "/api/proofs/proof-1791297378016-pumxw",
+      "status": "processing",
+      "createdAt": "Today, 02:36 PM (Oct 6, 2026)",
+      "isNew": true
+    },
+    {
+      "orderId": "RYV-45161-US",
+      "customerEmail": "test@gmail.com",
+      "items": [
+        {
+          "product": {
+            "id": "chatgpt-plus",
+            "name": "ChatGPT Plus & Team",
+            "tagline": "Access OpenAI with GPT-4o, o1-preview, Canvas & Advanced Voice Mode",
+            "category": "ai",
+            "categoryLabel": "AI TOOLS",
+            "iconName": "Bot",
+            "brandColor": "#10A37F",
+            "accentGlow": "rgba(16, 163, 127, 0.25)",
+            "rating": 4.9,
+            "reviewsCount": 340,
+            "features": [
+              "Priority access to GPT-4o, OpenAI o1 reasoning model & Canvas",
+              "Ultra high-definition DALL-E 3 image generation & Python sandbox",
+              "100% Private dedicated account or workspace invite on personal email"
+            ],
+            "retailPriceUSD": 20,
+            "priceUSD": 8.99,
+            "inStock": true,
+            "popular": true,
+            "featured": true,
+            "badge": "BESTSELLER",
+            "allowedAccountTypes": [
+              "private_account",
+              "workspace_invite"
+            ],
+            "description": "Get full unthrottled access to OpenAI ChatGPT Plus. Includes ChatGPT search, advanced memory, custom GPT creation, image generation via DALL-E 3, and high token capacity.",
+            "deliveryTime": "Instant (2-5 mins)",
+            "warranty": "Full 30-Day Auto-Replacement Warranty"
+          },
+          "duration": "1_month",
+          "accountType": "private_account",
+          "quantity": 1,
+          "priceUSD": 8.99
+        }
+      ],
+      "subtotalUSD": 8.99,
+      "discountUSD": 0,
+      "totalUSD": 8.99,
+      "paymentMethod": "Crypto USDT",
+      "paymentProof": "/api/proofs/proof-1791296874619-vn0st",
+      "status": "processing",
+      "createdAt": "Today, 02:34 PM (Oct 6, 2026)",
+      "isNew": true
+    },
+    {
       "orderId": "RYV-46445-US",
       "customerEmail": "john.doe@example.com",
       "customerPhone": "+15551234567",
@@ -1398,7 +1749,7 @@
       "discountPercent": 10,
       "description": "10% USA Community Welcome Discount",
       "active": true,
-      "usageCount": 142
+      "usageCount": 143
     },
     {
       "code": "VIP20",
@@ -1499,6 +1850,76 @@
     }
   ],
   "activations": [
+    {
+      "id": "act-1791297578336",
+      "productName": "ChatGPT Plus & Team",
+      "category": "ai",
+      "customerMasked": "c****e@test.com",
+      "city": "Houston",
+      "state": "TX",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
+    {
+      "id": "act-1791297396004",
+      "productName": "Cursor AI Pro",
+      "category": "development",
+      "customerMasked": "u****r@test.com",
+      "city": "San Diego",
+      "state": "CA",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
+    {
+      "id": "act-1791297395991",
+      "productName": "Canva Pro Enterprise",
+      "category": "design",
+      "customerMasked": "u****r@test.com",
+      "city": "Phoenix",
+      "state": "AZ",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
+    {
+      "id": "act-1791297395984",
+      "productName": "Midjourney v6.1 Pro",
+      "category": "ai",
+      "customerMasked": "u****r@test.com",
+      "city": "San Antonio",
+      "state": "TX",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
+    {
+      "id": "act-1791297395974",
+      "productName": "Adobe Creative Cloud",
+      "category": "design",
+      "customerMasked": "u****r@test.com",
+      "city": "Houston",
+      "state": "TX",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
+    {
+      "id": "act-1791297388677",
+      "productName": "ChatGPT Plus & Team",
+      "category": "ai",
+      "customerMasked": "u****r@test.com",
+      "city": "New York",
+      "state": "NY",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
+    {
+      "id": "act-1791297281696",
+      "productName": "ChatGPT Plus & Team",
+      "category": "ai",
+      "customerMasked": "t****t@gmail.com",
+      "city": "Los Angeles",
+      "state": "CA",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
     {
       "id": "act-1791296882953",
       "productName": "ChatGPT Plus & Team",
