@@ -32,39 +32,6 @@ import {
   apiUpdateAnnouncement,
 } from './utils/api';
 
-function playNotificationChime() {
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    const now = ctx.currentTime;
-
-    const osc1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    osc1.type = 'sine';
-    osc1.frequency.setValueAtTime(587.33, now); // D5
-    gain1.gain.setValueAtTime(0.2, now);
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-    osc1.connect(gain1);
-    gain1.connect(ctx.destination);
-    osc1.start(now);
-    osc1.stop(now + 0.35);
-
-    const osc2 = ctx.createOscillator();
-    const gain2 = ctx.createGain();
-    osc2.type = 'sine';
-    osc2.frequency.setValueAtTime(880, now + 0.15); // A5
-    gain2.gain.setValueAtTime(0.25, now + 0.15);
-    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-    osc2.connect(gain2);
-    gain2.connect(ctx.destination);
-    osc2.start(now + 0.15);
-    osc2.stop(now + 0.7);
-  } catch (err) {
-    console.debug('Audio chime muted/blocked:', err);
-  }
-}
-
 const INITIAL_COUPONS: PromoCoupon[] = [
   { code: 'USA10', discountPercent: 10, description: '10% USA Community Welcome Discount', active: true, usageCount: 142 },
   { code: 'VIP20', discountPercent: 20, description: '20% VIP Creator Program', active: true, usageCount: 68 },
@@ -289,7 +256,7 @@ export default function App() {
 
     initialFetch();
 
-    // 3.5s real-time live order poller
+    // 3.5s real-time live order poller (silent sync without admin audio or popup notification)
     const interval = setInterval(async () => {
       try {
         const freshOrders = await apiGetOrders();
@@ -297,22 +264,13 @@ export default function App() {
 
         setOrders((prev) => {
           const prevMap = new Map(prev.map((o) => [o.orderId, o]));
-          const newOrders = freshOrders.filter((o) => !prevMap.has(o.orderId));
-
-          if (newOrders.length > 0) {
-            const latest = newOrders[0];
-            playNotificationChime();
-            showToast(`🔔 New Order Received: #${latest.orderId} (${latest.customerEmail}) - $${latest.totalUSD.toFixed(2)}`);
-            return freshOrders;
-          }
-
-          // Check if any status updated
+          const hasNew = freshOrders.some((o) => !prevMap.has(o.orderId));
           const hasChanges = freshOrders.some((fo) => {
             const old = prevMap.get(fo.orderId);
             return !old || old.status !== fo.status || old.credentials?.licenseKey !== fo.credentials?.licenseKey;
           });
 
-          return hasChanges ? freshOrders : prev;
+          return (hasNew || hasChanges) ? freshOrders : prev;
         });
       } catch (err) {
         // Ignore polling transient errors

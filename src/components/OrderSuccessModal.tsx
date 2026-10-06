@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Copy, Check, Download, ExternalLink, ShieldCheck, Mail, Sparkles, X } from 'lucide-react';
+import { CheckCircle2, Clock, Mail, ShieldCheck, Check, Copy, ExternalLink, X, Image as ImageIcon } from 'lucide-react';
 import { CustomerOrder, CurrencyCode } from '../types';
 import { formatPrice } from '../utils/currency';
 
@@ -19,6 +19,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
   if (!order) return null;
 
   const [copiedKey, setCopiedKey] = useState(false);
+  const [showFullProof, setShowFullProof] = useState(false);
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -26,12 +27,14 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
     setTimeout(() => setCopiedKey(false), 2000);
   };
 
+  const isDelivered = order.status === 'delivered';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
       
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl bg-[#090d16] border border-emerald-500/30 p-6 sm:p-8 shadow-[0_0_50px_rgba(16,185,129,0.15)] z-10">
+      <div className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl bg-[#090d16] border border-cyan-500/30 p-6 sm:p-8 shadow-[0_0_50px_rgba(6,182,212,0.2)] z-10">
         
         {/* Close Button */}
         <button
@@ -41,54 +44,128 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        {/* Success Icon & Heading */}
+        {/* Heading */}
         <div className="text-center mb-6">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 mx-auto mb-3 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-            <CheckCircle2 className="w-9 h-9" />
+          <div className="w-16 h-16 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mx-auto mb-3 shadow-[0_0_20px_rgba(6,182,212,0.25)]">
+            <Clock className="w-8 h-8 text-cyan-400 animate-pulse" />
           </div>
 
-          <h2 className="text-2xl font-extrabold text-white font-display">
-            Order Activated Successfully!
+          <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest block mb-1">
+            Payment Screenshot Received
+          </span>
+
+          <h2 className="text-2xl font-black text-white font-display">
+            Order Submitted for Verification!
           </h2>
           
-          <p className="text-xs sm:text-sm text-slate-300 mt-1">
-            Order Ref: <span className="font-mono text-cyan-400 font-bold">{order.orderId}</span>
+          <p className="text-xs sm:text-sm text-slate-300 mt-1 font-mono">
+            Order Reference: <span className="text-cyan-400 font-bold">{order.orderId}</span>
           </p>
         </div>
 
-        {/* Fast Delivery Notification Box */}
-        <div className="mb-6 p-4 rounded-2xl bg-cyan-950/30 border border-cyan-500/30 flex items-start gap-3">
-          <Mail className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
+        {/* Delivery Notice Box */}
+        <div className="mb-6 p-4 rounded-2xl bg-amber-950/20 border border-amber-500/30 flex items-start gap-3">
+          <Mail className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
           <div className="text-xs text-slate-200 leading-relaxed">
-            <span className="font-bold text-white block mb-0.5">Dispatched to {order.customerEmail}</span>
-            Detailed instructions and password credentials have been emailed. Please also check your spam/promotions folder if not visible immediately.
+            <span className="font-bold text-amber-300 block mb-0.5">
+              Account Details will be Delivered via Email / Contact
+            </span>
+            Our team will verify your uploaded payment screenshot. After quick verification, your dedicated account credentials and login instructions will be delivered directly to <strong className="text-white font-mono">{order.customerEmail}</strong>{order.customerPhone ? ` / ${order.customerPhone}` : ''}.
           </div>
         </div>
 
-        {/* Credentials / License Box */}
-        {order.credentials && (
+        {/* 3-Step Verification Timeline */}
+        <div className="mb-6 p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3 text-xs">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+            Verification & Delivery Progress:
+          </span>
+
+          <div className="space-y-2.5">
+            <div className="flex items-center gap-2.5 text-slate-200">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0">✓</span>
+              <span>1. Order & Payment Screenshot Submitted</span>
+            </div>
+
+            <div className="flex items-center gap-2.5 text-amber-300">
+              <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold shrink-0 animate-pulse">●</span>
+              <span>2. Payment Verification (Staff reviewing proof)</span>
+            </div>
+
+            <div className="flex items-center gap-2.5 text-slate-400">
+              <span className="w-5 h-5 rounded-full bg-slate-800 text-slate-500 flex items-center justify-center text-xs font-bold shrink-0">3</span>
+              <span>3. Account Credentials Dispatched to {order.customerEmail}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Uploaded Payment Proof Section */}
+        {order.paymentProof && (
           <div className="mb-6 p-4 rounded-2xl bg-slate-900 border border-slate-800">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Instant License Access Code:
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+                Submitted Payment Proof Screenshot:
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowFullProof(!showFullProof)}
+                className="text-[11px] text-cyan-400 hover:text-cyan-300 cursor-pointer"
+              >
+                {showFullProof ? 'Hide Image' : 'View Full Image'}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+              <img
+                src={order.paymentProof}
+                alt="Payment Screenshot Proof"
+                className="w-14 h-14 object-cover rounded-lg border border-slate-800 cursor-pointer shrink-0"
+                onClick={() => setShowFullProof(true)}
+              />
+              <div className="text-xs">
+                <div className="font-semibold text-white">Payment Receipt Attached</div>
+                <div className="text-[11px] text-slate-400">Method: {order.paymentMethod}</div>
+                {order.transactionId && (
+                  <div className="text-[11px] text-cyan-400 font-mono">Ref: {order.transactionId}</div>
+                )}
+              </div>
+            </div>
+
+            {showFullProof && (
+              <div className="mt-3 p-2 bg-slate-950 rounded-xl border border-slate-800">
+                <img
+                  src={order.paymentProof}
+                  alt="Full Payment Proof"
+                  className="max-h-80 w-auto mx-auto rounded-lg object-contain"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* If Admin has already dispatched credentials */}
+        {isDelivered && order.credentials && (
+          <div className="mb-6 p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                ✓ Verified Account Credentials:
               </span>
               <button
                 onClick={() => handleCopy(order.credentials?.licenseKey || '')}
                 className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 cursor-pointer"
               >
-                {copiedKey ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copiedKey ? 'Copied' : 'Copy Key'}</span>
               </button>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 font-mono text-xs text-cyan-300 font-bold select-all tracking-wider break-all">
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-300 font-bold select-all tracking-wider break-all">
               {order.credentials.licenseKey}
             </div>
 
-            <div className="mt-3 text-[11px] text-slate-400 space-y-1">
-              <div>✓ Status: <strong className="text-emerald-400 font-medium">Activated & Verified</strong></div>
-              <div>✓ Warranty: <strong className="text-slate-300 font-medium">Full Duration Replacement Protection</strong></div>
-            </div>
+            <p className="text-[11px] text-slate-300 mt-2">
+              {order.credentials.instructions}
+            </p>
           </div>
         )}
 
@@ -110,7 +187,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
           ))}
 
           <div className="flex items-center justify-between pt-2 px-1 text-xs">
-            <span className="text-slate-400">Total Paid ({order.paymentMethod})</span>
+            <span className="text-slate-400">Total Amount</span>
             <span className="font-extrabold text-white text-sm tabular-nums">
               {formatPrice(order.totalUSD, currency)}
             </span>
@@ -126,14 +203,14 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
             }}
             className="w-full sm:flex-1 py-3 px-4 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-bold text-white transition-colors cursor-pointer text-center"
           >
-            Need Help? Open Live Agent
+            Need Help? Ask Support
           </button>
 
           <button
             onClick={onClose}
-            className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-xs transition-colors cursor-pointer text-center shadow-md"
+            className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer text-center shadow-md"
           >
-            Return to Store
+            Done / Return to Store
           </button>
         </div>
 

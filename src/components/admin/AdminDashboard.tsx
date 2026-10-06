@@ -104,6 +104,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // License manual dispatch
   const [dispatchOrderId, setDispatchOrderId] = useState<string | null>(null);
   const [customKey, setCustomKey] = useState('');
+  const [customInstructions, setCustomInstructions] = useState('');
+  const [viewingProofOrder, setViewingProofOrder] = useState<CustomerOrder | null>(null);
 
   // Calculations
   const totalRevenue = orders.reduce((sum, o) => sum + o.totalUSD, 0) + 142890;
@@ -228,7 +230,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const assignedKey = customKey.trim() || `RYV-DISPATCH-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     const newCreds = {
       licenseKey: assignedKey,
-      instructions: 'License provisioned manually via Ryvora Admin Console.',
+      instructions: customInstructions.trim() || 'Your account credentials and login instructions have been verified and dispatched by the administration team.',
     };
 
     const updated = orders.map((o) => {
@@ -249,6 +251,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     apiUpdateOrder(orderId, { status: 'delivered', credentials: newCreds }).catch(console.error);
     setDispatchOrderId(null);
     setCustomKey('');
+    setCustomInstructions('');
   };
 
   return (
@@ -387,34 +390,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Content Panel */}
         <main className="flex-1 min-w-0">
           
-          {/* Real-time Live Order Arrival Banner */}
-          {orders.length > 0 && orders[0].createdAt.includes('Today') && (
-            <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-cyan-950/60 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[0_0_25px_rgba(16,185,129,0.2)] animate-in fade-in">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg shrink-0">
-                  🔔
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white flex items-center gap-2">
-                    <span>Live Customer Order: #{orders[0].orderId}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 uppercase font-mono font-bold">
-                      {orders[0].status}
-                    </span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Customer: <strong className="text-cyan-300 font-mono">{orders[0].customerEmail}</strong> · Total: <strong className="text-emerald-400">${orders[0].totalUSD.toFixed(2)}</strong> · {orders[0].items.length} item(s) · {orders[0].createdAt}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setActiveTab('orders')}
-                className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shrink-0 cursor-pointer shadow-md"
-              >
-                Inspect Order Details →
-              </button>
-            </div>
-          )}
-
           {/* TAB 1: ANALYTICS OVERVIEW */}
           {activeTab === 'analytics' && (
             <div className="space-y-6">
@@ -851,8 +826,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <tr className="border-b border-slate-800 bg-slate-950/60 text-[11px] uppercase font-bold text-slate-500">
                         <th className="p-4">Order ID & Date</th>
                         <th className="p-4">Customer Email</th>
+                        <th className="p-4">Payment Proof</th>
                         <th className="p-4">Tools Purchased</th>
-                        <th className="p-4">Payment</th>
+                        <th className="p-4">Payment Method</th>
                         <th className="p-4">Total</th>
                         <th className="p-4">Status & License</th>
                         <th className="p-4 text-right">Actions</th>
@@ -869,7 +845,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <td className="p-4">
                             <span className="font-medium text-white">{ord.customerEmail}</span>
                             {ord.customerPhone && (
-                              <span className="block text-[10px] text-slate-500">{ord.customerPhone}</span>
+                              <span className="block text-[10px] text-slate-400 font-mono">{ord.customerPhone}</span>
+                            )}
+                          </td>
+
+                          <td className="p-4">
+                            {ord.paymentProof ? (
+                              <div className="flex items-center gap-2">
+                                <img
+                                  src={ord.paymentProof}
+                                  alt="Proof Screenshot"
+                                  onClick={() => setViewingProofOrder(ord)}
+                                  className="w-12 h-12 object-cover rounded-lg border border-slate-700 hover:border-cyan-400 cursor-pointer shadow-sm hover:scale-105 transition-transform"
+                                  title="Click to view full screenshot"
+                                />
+                                <div className="text-[10px]">
+                                  <button
+                                    onClick={() => setViewingProofOrder(ord)}
+                                    className="text-cyan-400 hover:text-cyan-300 font-semibold block cursor-pointer"
+                                  >
+                                    View Proof
+                                  </button>
+                                  {ord.transactionId && (
+                                    <span className="text-slate-400 font-mono block truncate max-w-[100px]" title={ord.transactionId}>
+                                      Ref: {ord.transactionId}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-500 italic">No receipt attached</span>
                             )}
                           </td>
 
@@ -895,9 +900,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               ord.status === 'delivered'
                                 ? 'bg-emerald-500/20 text-emerald-400'
-                                : 'bg-amber-500/20 text-amber-300'
+                                : 'bg-amber-500/20 text-amber-300 animate-pulse'
                             }`}>
-                              {ord.status.toUpperCase()}
+                              {ord.status === 'delivered' ? 'DELIVERED' : 'PENDING VERIFICATION'}
                             </span>
                             {ord.credentials?.licenseKey && (
                               <div className="font-mono text-[10px] text-slate-400 mt-1 truncate max-w-[140px] select-all">
@@ -911,14 +916,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <button
                                 onClick={() => {
                                   setDispatchOrderId(ord.orderId);
-                                  setCustomKey(`RYV-${Math.random().toString(36).substring(2, 8).toUpperCase()}`);
+                                  setCustomKey(ord.credentials?.licenseKey || `RYV-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`);
+                                  setCustomInstructions('Your payment has been verified. Account credentials dispatched successfully.');
                                 }}
-                                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] cursor-pointer"
+                                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] cursor-pointer shadow-sm"
                               >
-                                Dispatch Key
+                                Verify & Dispatch Details
                               </button>
                             ) : (
-                              <span className="text-[11px] text-emerald-400 font-semibold">✓ Dispatched</span>
+                              <button
+                                onClick={() => {
+                                  setDispatchOrderId(ord.orderId);
+                                  setCustomKey(ord.credentials?.licenseKey || '');
+                                  setCustomInstructions(ord.credentials?.instructions || '');
+                                }}
+                                className="text-[11px] text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-900 border border-slate-800"
+                              >
+                                Edit Credentials
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -928,37 +943,126 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Dispatch Modal */}
+              {/* Full Payment Screenshot Viewer Modal */}
+              {viewingProofOrder && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+                  <div className="fixed inset-0" onClick={() => setViewingProofOrder(null)} />
+                  <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl bg-[#090d16] border border-cyan-500/40 p-6 shadow-2xl z-10">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+                      <div>
+                        <h3 className="text-base font-bold text-white font-display">
+                          Payment Screenshot Proof - {viewingProofOrder.orderId}
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Customer: <strong className="text-cyan-300 font-mono">{viewingProofOrder.customerEmail}</strong> | Total: <strong className="text-emerald-400">${viewingProofOrder.totalUSD.toFixed(2)}</strong> ({viewingProofOrder.paymentMethod})
+                        </p>
+                        {viewingProofOrder.transactionId && (
+                          <p className="text-xs text-amber-300 font-mono mt-0.5">
+                            Customer Ref / TxID: {viewingProofOrder.transactionId}
+                          </p>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => setViewingProofOrder(null)}
+                        className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    {viewingProofOrder.paymentProof && (
+                      <div className="bg-slate-950 p-2 rounded-2xl border border-slate-800 flex items-center justify-center overflow-hidden mb-4">
+                        <img
+                          src={viewingProofOrder.paymentProof}
+                          alt="Customer Payment Receipt"
+                          className="max-h-[60vh] w-auto object-contain rounded-xl"
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-3 text-xs">
+                      <button
+                        onClick={() => setViewingProofOrder(null)}
+                        className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 cursor-pointer"
+                      >
+                        Close
+                      </button>
+                      {viewingProofOrder.status !== 'delivered' && (
+                        <button
+                          onClick={() => {
+                            const ord = viewingProofOrder;
+                            setViewingProofOrder(null);
+                            setDispatchOrderId(ord.orderId);
+                            setCustomKey(`RYV-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`);
+                            setCustomInstructions('Your payment has been verified. Account credentials dispatched successfully.');
+                          }}
+                          className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold cursor-pointer"
+                        >
+                          Proceed to Verify & Dispatch
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Dispatch Account Details Modal */}
               {dispatchOrderId && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-                  <div className="relative w-full max-w-md rounded-3xl bg-[#090d16] border border-cyan-500/30 p-6 shadow-2xl">
-                    <h3 className="text-base font-bold text-white font-display mb-2">
-                      Dispatch Key for {dispatchOrderId}
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+                  <div className="relative w-full max-w-lg rounded-3xl bg-[#090d16] border border-cyan-500/30 p-6 sm:p-7 shadow-2xl z-10">
+                    <h3 className="text-base font-bold text-white font-display mb-1">
+                      Verify Payment & Dispatch Account Details
                     </h3>
                     <p className="text-xs text-slate-400 mb-4">
-                      Enter the generated license credentials or team invite URL:
+                      Order: <span className="font-mono text-cyan-400 font-bold">{dispatchOrderId}</span>
                     </p>
 
-                    <input
-                      type="text"
-                      value={customKey}
-                      onChange={(e) => setCustomKey(e.target.value)}
-                      placeholder="e.g. RYV-GPT4O-US-77891"
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-mono mb-4 focus:outline-none focus:border-cyan-500"
-                    />
+                    <div className="space-y-3.5 text-xs">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                          Account Login Credentials / License Key / Access Token:
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={customKey}
+                          onChange={(e) => setCustomKey(e.target.value)}
+                          placeholder="e.g. Email: user@ryvora.com | Pass: SecurePass123"
+                          className="w-full px-3 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
 
-                    <div className="flex justify-end gap-2 text-xs">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                          Activation & Delivery Instructions:
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={customInstructions}
+                          onChange={(e) => setCustomInstructions(e.target.value)}
+                          placeholder="Instructions to display to customer and send to inbox..."
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2.5 text-xs mt-5">
                       <button
-                        onClick={() => setDispatchOrderId(null)}
+                        onClick={() => {
+                          setDispatchOrderId(null);
+                          setCustomKey('');
+                          setCustomInstructions('');
+                        }}
                         className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 cursor-pointer"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={() => handleDispatchOrder(dispatchOrderId)}
-                        className="px-5 py-2 rounded-xl bg-emerald-500 text-slate-950 font-bold cursor-pointer"
+                        className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold cursor-pointer shadow-md"
                       >
-                        Confirm Dispatch
+                        Approve Payment & Send Credentials
                       </button>
                     </div>
                   </div>

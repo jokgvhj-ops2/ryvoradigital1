@@ -1172,6 +1172,16 @@
   ],
   "activations": [
     {
+      "id": "act-1791294079158",
+      "productName": "Canva Pro Enterprise",
+      "category": "ai",
+      "customerMasked": "b****r@gmail.com",
+      "city": "Dallas",
+      "state": "TX",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
+    {
       "id": "act-1791293311252",
       "productName": "ChatGPT Plus & Team",
       "category": "ai",

@@ -59,6 +59,8 @@ export interface CustomerOrder {
   discountUSD: number;
   totalUSD: number;
   paymentMethod: string;
+  paymentProof?: string;
+  transactionId?: string;
   status: 'processing' | 'activated' | 'delivered';
   createdAt: string;
   credentials?: {

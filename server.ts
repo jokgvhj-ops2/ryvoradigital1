@@ -12,7 +12,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Persistent Database Directory & File
 const DATA_DIR = path.resolve(__dirname, 'data');
@@ -162,7 +163,7 @@ app.get('/api/orders', (req, res) => {
 
 app.post('/api/orders', (req, res) => {
   try {
-    const { customerEmail, customerPhone, items, subtotalUSD, discountUSD, totalUSD, paymentMethod } = req.body;
+    const { customerEmail, customerPhone, items, subtotalUSD, discountUSD, totalUSD, paymentMethod, paymentProof, transactionId } = req.body;
 
     if (!customerEmail || !items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Invalid order data: email and items are required.' });
@@ -170,12 +171,6 @@ app.post('/api/orders', (req, res) => {
 
     const orderNumber = Math.floor(10000 + Math.random() * 90000);
     const orderId = `RYV-${orderNumber}-US`;
-
-    // Generate real license token
-    const part1 = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const part2 = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const part3 = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const licenseKey = `RYV-${part1}-${part2}-${part3}`;
 
     const now = new Date();
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -190,14 +185,12 @@ app.post('/api/orders', (req, res) => {
       subtotalUSD: Number(subtotalUSD || 0),
       discountUSD: Number(discountUSD || 0),
       totalUSD: Number(totalUSD || 0),
-      paymentMethod: paymentMethod || 'Credit/Debit Card (Stripe USA)',
-      status: 'delivered',
+      paymentMethod: paymentMethod || 'Online Payment',
+      paymentProof: paymentProof || undefined,
+      transactionId: transactionId ? String(transactionId).trim() : undefined,
+      status: 'processing',
       createdAt,
-      credentials: {
-        licenseKey,
-        accountEmail: String(customerEmail).trim(),
-        instructions: 'Official license token & activation credentials allocated instantly. Dispatched directly to inbox with full replacement warranty.',
-      },
+      credentials: undefined,
     };
 
     // Prepend new order (newest first)

@@ -25,6 +25,8 @@ export async function apiCreateOrder(orderPayload: {
   discountUSD: number;
   totalUSD: number;
   paymentMethod: string;
+  paymentProof?: string;
+  transactionId?: string;
 }): Promise<CustomerOrder> {
   const res = await fetch('/api/orders', {
     method: 'POST',
