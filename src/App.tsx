@@ -30,6 +30,7 @@ import {
   apiGetActivations,
   apiGetAnnouncement,
   apiUpdateAnnouncement,
+  apiVerifyAdminSession,
 } from './utils/api';
 
 const INITIAL_COUPONS: PromoCoupon[] = [
@@ -229,14 +230,13 @@ export default function App() {
     }
   }, [announcementText]);
 
-  // Initial sync from backend + real-time live order polling
+  // Initial sync from backend for storefront data
   useEffect(() => {
     let mounted = true;
 
     async function initialFetch() {
       try {
-        const [serverOrders, serverProds, serverCoups, serverActs, serverAnn] = await Promise.all([
-          apiGetOrders(),
+        const [serverProds, serverCoups, serverActs, serverAnn] = await Promise.all([
           apiGetProducts(),
           apiGetCoupons(),
           apiGetActivations(),
@@ -244,11 +244,21 @@ export default function App() {
         ]);
 
         if (!mounted) return;
-        if (serverOrders && serverOrders.length > 0) setOrders(serverOrders);
         if (serverProds && serverProds.length > 0) setProducts(serverProds);
         if (serverCoups && serverCoups.length > 0) setCoupons(serverCoups);
         if (serverActs && serverActs.length > 0) setActivations(serverActs);
         if (serverAnn !== null && serverAnn !== undefined) setAnnouncementText(serverAnn);
+
+        // Check if an authenticated admin session already exists
+        const isAdmin = await apiVerifyAdminSession();
+        if (isAdmin && mounted) {
+          try {
+            const serverOrders = await apiGetOrders();
+            if (serverOrders && serverOrders.length > 0) setOrders(serverOrders);
+          } catch {
+            // Ignore orders fetch error if session expired
+          }
+        }
       } catch (e) {
         console.warn('Initial server sync warning:', e);
       }
@@ -256,30 +266,8 @@ export default function App() {
 
     initialFetch();
 
-    // 3.5s real-time live order poller (silent sync without admin audio or popup notification)
-    const interval = setInterval(async () => {
-      try {
-        const freshOrders = await apiGetOrders();
-        if (!mounted || !freshOrders || freshOrders.length === 0) return;
-
-        setOrders((prev) => {
-          const prevMap = new Map(prev.map((o) => [o.orderId, o]));
-          const hasNew = freshOrders.some((o) => !prevMap.has(o.orderId));
-          const hasChanges = freshOrders.some((fo) => {
-            const old = prevMap.get(fo.orderId);
-            return !old || old.status !== fo.status || old.credentials?.licenseKey !== fo.credentials?.licenseKey;
-          });
-
-          return (hasNew || hasChanges) ? freshOrders : prev;
-        });
-      } catch (err) {
-        // Ignore polling transient errors
-      }
-    }, 3500);
-
     return () => {
       mounted = false;
-      clearInterval(interval);
     };
   }, []);
 
@@ -513,7 +501,13 @@ export default function App() {
       <AdminLoginModal
         isOpen={isAdminLoginOpen}
         onClose={() => setIsAdminLoginOpen(false)}
-        onLoginSuccess={() => {
+        onLoginSuccess={async () => {
+          try {
+            const fresh = await apiGetOrders();
+            if (fresh) setOrders(fresh);
+          } catch (e) {
+            console.warn('Orders fetch after admin login:', e);
+          }
           setIsAdminView(true);
           showToast('Admin Console Authenticated');
         }}

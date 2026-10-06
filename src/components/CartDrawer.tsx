@@ -141,9 +141,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         customerEmail: customerEmail.trim(),
         customerPhone: customerPhone.trim() || undefined,
         items: [...items],
-        subtotalUSD,
-        discountUSD,
-        totalUSD,
+        couponCode: couponCode.trim() || undefined,
         paymentMethod: currentPayInfo.name,
         paymentProof: paymentProof,
         transactionId: transactionId.trim() || undefined,
@@ -154,28 +152,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       onClose();
       onOrderCompleted(newOrder);
     } catch (err: any) {
-      console.warn('Backend order submission fallback:', err);
-      const generatedOrderId = `RYV-${Math.floor(10000 + Math.random() * 90000)}-US`;
-
-      const fallbackOrder: CustomerOrder = {
-        orderId: generatedOrderId,
-        customerEmail: customerEmail.trim(),
-        customerPhone: customerPhone.trim() || undefined,
-        items: [...items],
-        subtotalUSD,
-        discountUSD,
-        totalUSD,
-        paymentMethod: currentPayInfo.name,
-        paymentProof: paymentProof,
-        transactionId: transactionId.trim() || undefined,
-        status: 'processing',
-        createdAt: `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      };
-
+      console.error('Order submission error:', err);
       setIsSubmitting(false);
-      onClearCart();
-      onClose();
-      onOrderCompleted(fallbackOrder);
+      setFormError(err.message || 'Unable to place order. Please verify your internet connection and try again.');
     }
   };
 

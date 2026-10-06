@@ -68,6 +68,7 @@ export interface CustomerOrder {
     accountEmail?: string;
     instructions: string;
   };
+  isNew?: boolean;
 }
 
 export interface CustomerReview {

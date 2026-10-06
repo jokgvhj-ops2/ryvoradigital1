@@ -918,6 +918,116 @@
   ],
   "orders": [
     {
+      "orderId": "RYV-90450-US",
+      "customerEmail": "customer.test@example.com",
+      "customerPhone": "+1 (555) 234-5678",
+      "items": [
+        {
+          "product": {
+            "id": "chatgpt-plus",
+            "name": "ChatGPT Plus & Team",
+            "tagline": "Access OpenAI with GPT-4o, o1-preview, Canvas & Advanced Voice Mode",
+            "category": "ai",
+            "categoryLabel": "AI TOOLS",
+            "iconName": "Bot",
+            "brandColor": "#10A37F",
+            "accentGlow": "rgba(16, 163, 127, 0.25)",
+            "rating": 4.9,
+            "reviewsCount": 340,
+            "features": [
+              "Priority access to GPT-4o, OpenAI o1 reasoning model & Canvas",
+              "Ultra high-definition DALL-E 3 image generation & Python sandbox",
+              "100% Private dedicated account or workspace invite on personal email"
+            ],
+            "retailPriceUSD": 20,
+            "priceUSD": 8.99,
+            "inStock": true,
+            "popular": true,
+            "featured": true,
+            "badge": "BESTSELLER",
+            "allowedAccountTypes": [
+              "private_account",
+              "workspace_invite"
+            ],
+            "description": "Get full unthrottled access to OpenAI ChatGPT Plus. Includes ChatGPT search, advanced memory, custom GPT creation, image generation via DALL-E 3, and high token capacity.",
+            "deliveryTime": "Instant (2-5 mins)",
+            "warranty": "Full 30-Day Auto-Replacement Warranty"
+          },
+          "duration": "1_month",
+          "accountType": "private_account",
+          "quantity": 1,
+          "priceUSD": 8.99
+        }
+      ],
+      "subtotalUSD": 8.99,
+      "discountUSD": 0.9,
+      "totalUSD": 8.09,
+      "paymentMethod": "Credit/Debit Card (Stripe USA)",
+      "paymentProof": "/api/proofs/proof-1791295522432-cmj8s",
+      "transactionId": "TXN-TEST-12345",
+      "status": "delivered",
+      "createdAt": "Today, 02:05 PM (Oct 6, 2026)",
+      "credentials": {
+        "licenseKey": "RYV-GPT4O-PRO-90450-US",
+        "accountEmail": "customer.test@example.com",
+        "instructions": "Your account login has been verified and activated. Check inbox."
+      },
+      "isNew": false
+    },
+    {
+      "orderId": "RYV-72584-US",
+      "customerEmail": "jokgvhj@gmail.com",
+      "items": [
+        {
+          "product": {
+            "id": "chatgpt-plus",
+            "name": "ChatGPT Plus & Team",
+            "tagline": "Access OpenAI with GPT-4o, o1-preview, Canvas & Advanced Voice Mode",
+            "category": "ai",
+            "categoryLabel": "AI TOOLS",
+            "iconName": "Bot",
+            "brandColor": "#10A37F",
+            "accentGlow": "rgba(16, 163, 127, 0.25)",
+            "rating": 4.9,
+            "reviewsCount": 340,
+            "features": [
+              "Priority access to GPT-4o, OpenAI o1 reasoning model & Canvas",
+              "Ultra high-definition DALL-E 3 image generation & Python sandbox",
+              "100% Private dedicated account or workspace invite on personal email"
+            ],
+            "retailPriceUSD": 20,
+            "priceUSD": 8.99,
+            "inStock": true,
+            "popular": true,
+            "featured": true,
+            "badge": "BESTSELLER",
+            "allowedAccountTypes": [
+              "private_account",
+              "workspace_invite"
+            ],
+            "description": "Get full unthrottled access to OpenAI ChatGPT Plus. Includes ChatGPT search, advanced memory, custom GPT creation, image generation via DALL-E 3, and high token capacity.",
+            "deliveryTime": "Instant (2-5 mins)",
+            "warranty": "Full 30-Day Auto-Replacement Warranty"
+          },
+          "duration": "1_month",
+          "accountType": "private_account",
+          "quantity": 1,
+          "priceUSD": 8.99
+        }
+      ],
+      "subtotalUSD": 8.99,
+      "discountUSD": 0,
+      "totalUSD": 8.99,
+      "paymentMethod": "Credit/Debit Card (Stripe USA / Wire)",
+      "paymentProof": "/api/proofs/proof-RYV_72584_US",
+      "status": "delivered",
+      "createdAt": "Today, 01:44 PM (Oct 6, 2026)",
+      "credentials": {
+        "licenseKey": "RYV-GRDZ41-YLXBCQ",
+        "instructions": "Your payment has been verified. Account credentials dispatched successfully."
+      }
+    },
+    {
       "orderId": "RYV-94821-US",
       "customerEmail": "austin.dev@gmail.com",
       "customerPhone": "+1 (512) 883-9120",
@@ -1106,6 +1216,13 @@
       "description": "Limited Flash Deal for Annual Bundles",
       "active": false,
       "usageCount": 12
+    },
+    {
+      "code": "USA10",
+      "discountPercent": 10,
+      "description": "10% USA Community Welcome Discount",
+      "active": true,
+      "usageCount": 143
     }
   ],
   "reviews": [
@@ -1171,6 +1288,26 @@
     }
   ],
   "activations": [
+    {
+      "id": "act-1791295522434",
+      "productName": "ChatGPT Plus & Team",
+      "category": "ai",
+      "customerMasked": "c****t@example.com",
+      "city": "San Antonio",
+      "state": "TX",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
+    {
+      "id": "act-1791294293202",
+      "productName": "ChatGPT Plus & Team",
+      "category": "ai",
+      "customerMasked": "j****j@gmail.com",
+      "city": "San Antonio",
+      "state": "TX",
+      "minutesAgo": 1,
+      "planDuration": "1 month"
+    },
     {
       "id": "act-1791294079158",
       "productName": "Canva Pro Enterprise",

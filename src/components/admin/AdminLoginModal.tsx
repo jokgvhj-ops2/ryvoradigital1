@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Shield, KeyRound, Lock, X, Sparkles, AlertCircle } from 'lucide-react';
+import { KeyRound, X, AlertCircle, Loader2 } from 'lucide-react';
 import { RyvoraLogo } from '../RyvoraLogo';
+import { apiAdminLogin } from '../../utils/api';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -17,29 +18,41 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Authorized staff passcode
-    if (password.trim() === 'bsse5038' || password.trim().toLowerCase() === 'bsse5038') {
-      setError('');
-      onLoginSuccess();
-      onClose();
-    } else {
-      setError('Invalid admin passcode. Please enter the authorized staff passcode.');
+    if (!password.trim()) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const result = await apiAdminLogin(password.trim(), true);
+      if (result.success) {
+        setError('');
+        setPassword('');
+        onLoginSuccess();
+        onClose();
+      } else {
+        setError(result.message || 'Invalid admin passcode. Please enter the authorized staff passcode.');
+      }
+    } catch {
+      setError('Connection failure during admin verification. Check network connection.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-      
       <div className="fixed inset-0" onClick={onClose} />
 
       <div className="relative w-full max-w-md rounded-3xl bg-[#090d16] border border-cyan-500/30 p-6 sm:p-8 shadow-[0_0_50px_rgba(6,182,212,0.2)] z-10">
-        
         {/* Close Button */}
         <button
           onClick={onClose}
+          disabled={loading}
           className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-white bg-slate-900 border border-slate-800 transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
@@ -68,10 +81,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
               type="password"
               required
               autoFocus
+              disabled={loading}
               placeholder="Enter staff passcode"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500 font-mono"
+              className="w-full px-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500 font-mono disabled:opacity-50"
             />
           </div>
 
@@ -84,14 +98,14 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
           <button
             type="submit"
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)] cursor-pointer"
+            disabled={loading}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            Authenticate & Open Console
+            {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-950" />}
+            <span>{loading ? 'Verifying Passcode...' : 'Authenticate & Open Console'}</span>
           </button>
         </form>
-
       </div>
-
     </div>
   );
 };

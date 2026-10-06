@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   Package,
@@ -27,6 +27,7 @@ import { Product, CustomerOrder, CustomerReview, LiveActivation, PromoCoupon, Ca
 import { RyvoraLogo } from '../RyvoraLogo';
 import { CATEGORIES } from '../../data/products';
 import {
+  apiGetOrders,
   apiUpdateOrder,
   apiDeleteOrder,
   apiUpdateProduct,
@@ -107,9 +108,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [customInstructions, setCustomInstructions] = useState('');
   const [viewingProofOrder, setViewingProofOrder] = useState<CustomerOrder | null>(null);
 
+  // Auto-refresh & notification polling state (12 seconds production interval)
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastSync, setLastSync] = useState<string>('Just now');
+
+  const refreshOrders = async () => {
+    try {
+      setIsRefreshing(true);
+      const fresh = await apiGetOrders();
+      if (fresh) {
+        onUpdateOrders(fresh);
+        setLastSync(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      }
+    } catch (e) {
+      console.warn('Admin orders auto-refresh failed:', e);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshOrders();
+    const interval = setInterval(refreshOrders, 12000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Calculations
   const totalRevenue = orders.reduce((sum, o) => sum + o.totalUSD, 0) + 142890;
   const pendingOrders = orders.filter((o) => o.status === 'processing');
+  const newOrdersCount = orders.filter((o) => (o as any).isNew || o.status === 'processing').length;
 
   // Filtered Products
   const filteredProducts = products.filter((p) => {
@@ -119,7 +146,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
 
   // Handle Add Product
-  const handleCreateProduct = (e: React.FormEvent) => {
+  const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
 
@@ -149,37 +176,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     onUpdateProducts([newProd, ...products]);
     setIsAddProductOpen(false);
-    // Reset
     setNewName('');
     setNewTagline('');
+
+    try {
+      await apiCreateProduct(newProd);
+    } catch (err) {
+      console.error('Error saving new product to database:', err);
+    }
   };
 
   // Toggle Stock
-  const handleToggleStock = (productId: string) => {
+  const handleToggleStock = async (productId: string) => {
+    const target = products.find((p) => p.id === productId);
+    if (!target) return;
+    const newStock = !target.inStock;
+
     const updated = products.map((p) =>
-      p.id === productId ? { ...p, inStock: !p.inStock } : p
+      p.id === productId ? { ...p, inStock: newStock } : p
     );
     onUpdateProducts(updated);
+
+    try {
+      await apiUpdateProduct(productId, { inStock: newStock });
+    } catch (err) {
+      console.error('Error updating stock on database:', err);
+    }
   };
 
   // Save Inline Price
-  const handleSavePrice = (productId: string) => {
+  const handleSavePrice = async (productId: string) => {
     const updated = products.map((p) =>
       p.id === productId ? { ...p, priceUSD: editPrice } : p
     );
     onUpdateProducts(updated);
     setEditingProductId(null);
+
+    try {
+      await apiUpdateProduct(productId, { priceUSD: editPrice });
+    } catch (err) {
+      console.error('Error saving price on database:', err);
+    }
   };
 
   // Delete Product
-  const handleDeleteProduct = (productId: string) => {
+  const handleDeleteProduct = async (productId: string) => {
     if (confirm('Are you sure you want to remove this product from Ryvora Digital?')) {
       onUpdateProducts(products.filter((p) => p.id !== productId));
+      try {
+        await apiDeleteProduct(productId);
+      } catch (err) {
+        console.error('Error deleting product from database:', err);
+      }
     }
   };
 
   // Add Coupon
-  const handleAddCoupon = (e: React.FormEvent) => {
+  const handleAddCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCouponCode.trim()) return;
 
@@ -194,22 +247,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     onUpdateCoupons([...coupons, coupon]);
     setNewCouponCode('');
     setNewCouponDesc('');
+
+    try {
+      await apiCreateCoupon(coupon);
+    } catch (err) {
+      console.error('Error creating coupon on database:', err);
+    }
   };
 
   // Toggle Coupon
-  const handleToggleCoupon = (code: string) => {
+  const handleToggleCoupon = async (code: string) => {
     onUpdateCoupons(
       coupons.map((c) => (c.code === code ? { ...c, active: !c.active } : c))
     );
+
+    try {
+      await apiToggleCoupon(code);
+    } catch (err) {
+      console.error('Error toggling coupon on database:', err);
+    }
   };
 
   // Delete Coupon
-  const handleDeleteCoupon = (code: string) => {
+  const handleDeleteCoupon = async (code: string) => {
     onUpdateCoupons(coupons.filter((c) => c.code !== code));
+    try {
+      await apiDeleteCoupon(code);
+    } catch (err) {
+      console.error('Error deleting coupon from database:', err);
+    }
   };
 
   // Add Live Activation Proof
-  const handleAddActivation = (e: React.FormEvent) => {
+  const handleAddActivation = async (e: React.FormEvent) => {
     e.preventDefault();
     const newAct: LiveActivation = {
       id: `act-${Date.now()}`,
@@ -223,10 +293,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
 
     onUpdateActivations([newAct, ...activations]);
+
+    try {
+      await apiAddActivation(newAct);
+    } catch (err) {
+      console.error('Error adding activation to database:', err);
+    }
+  };
+
+  // Delete Activation
+  const handleDeleteActivation = async (id: string) => {
+    onUpdateActivations(activations.filter((a) => a.id !== id));
+    try {
+      await apiDeleteActivation(id);
+    } catch (err) {
+      console.error('Error deleting activation from database:', err);
+    }
   };
 
   // Dispatch Order
-  const handleDispatchOrder = (orderId: string) => {
+  const handleDispatchOrder = async (orderId: string) => {
     const assignedKey = customKey.trim() || `RYV-DISPATCH-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     const newCreds = {
       licenseKey: assignedKey,
@@ -242,16 +328,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             ...newCreds,
             accountEmail: o.customerEmail,
           },
+          isNew: false,
         };
       }
       return o;
     });
 
     onUpdateOrders(updated);
-    apiUpdateOrder(orderId, { status: 'delivered', credentials: newCreds }).catch(console.error);
     setDispatchOrderId(null);
     setCustomKey('');
     setCustomInstructions('');
+
+    try {
+      await apiUpdateOrder(orderId, { status: 'delivered', credentials: newCreds, isNew: false });
+    } catch (err) {
+      console.error('Error dispatching order on database:', err);
+    }
+  };
+
+  // Change Order Status
+  const handleStatusChange = async (orderId: string, newStatus: string) => {
+    const updated = orders.map((o) =>
+      o.orderId === orderId ? { ...o, status: newStatus as any } : o
+    );
+    onUpdateOrders(updated);
+
+    try {
+      await apiUpdateOrder(orderId, { status: newStatus });
+    } catch (err) {
+      console.error('Error updating order status on database:', err);
+    }
+  };
+
+  // Delete Order
+  const handleDeleteOrder = async (orderId: string) => {
+    if (confirm(`Permanently remove order ${orderId} from production database?`)) {
+      onUpdateOrders(orders.filter((o) => o.orderId !== orderId));
+      try {
+        await apiDeleteOrder(orderId);
+      } catch (err) {
+        console.error('Error deleting order on database:', err);
+      }
+    }
   };
 
   return (
@@ -268,9 +386,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>LIVE CLOUD BACKEND · {orders.length} ORDERS SYNCED</span>
           </div>
+
+          {newOrdersCount > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-black animate-pulse">
+              <span className="w-2 h-2 rounded-full bg-rose-400" />
+              <span>{newOrdersCount} NEW ORDER{newOrdersCount > 1 ? 'S' : ''}</span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={refreshOrders}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white text-xs font-semibold cursor-pointer transition-colors"
+            title={`Last synced: ${lastSync}`}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-cyan-400' : ''}`} />
+            <span className="hidden sm:inline">{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
+          </button>
+
           <button
             onClick={onExitAdmin}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold text-xs shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:brightness-110 transition-all cursor-pointer"
@@ -329,10 +464,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <ShoppingBag className="w-4 h-4" />
               <span>Customer Orders</span>
             </div>
-            {pendingOrders.length > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-bold">
-                {pendingOrders.length}
+            {newOrdersCount > 0 ? (
+              <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
+                {newOrdersCount} NEW
               </span>
+            ) : (
+              <span className="text-[11px] opacity-80">{orders.length}</span>
             )}
           </button>
 
@@ -836,9 +973,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
                       {orders.map((ord) => (
-                        <tr key={ord.orderId} className="hover:bg-slate-900/30">
+                        <tr key={ord.orderId} className={`hover:bg-slate-900/30 ${(ord as any).isNew ? 'bg-cyan-950/20' : ''}`}>
                           <td className="p-4">
-                            <span className="font-mono text-cyan-400 font-bold block">{ord.orderId}</span>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <span className="font-mono text-cyan-400 font-bold block">{ord.orderId}</span>
+                              {((ord as any).isNew || ord.status === 'processing') && (
+                                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
+                                  NEW
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[10px] text-slate-500">{ord.createdAt}</span>
                           </td>
 
@@ -897,44 +1041,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </td>
 
                           <td className="p-4">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              ord.status === 'delivered'
-                                ? 'bg-emerald-500/20 text-emerald-400'
-                                : 'bg-amber-500/20 text-amber-300 animate-pulse'
-                            }`}>
-                              {ord.status === 'delivered' ? 'DELIVERED' : 'PENDING VERIFICATION'}
-                            </span>
-                            {ord.credentials?.licenseKey && (
-                              <div className="font-mono text-[10px] text-slate-400 mt-1 truncate max-w-[140px] select-all">
-                                {ord.credentials.licenseKey}
-                              </div>
-                            )}
+                            <div className="flex flex-col gap-1">
+                              <select
+                                value={ord.status}
+                                onChange={(e) => handleStatusChange(ord.orderId, e.target.value)}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border bg-slate-900 cursor-pointer focus:outline-none ${
+                                  ord.status === 'delivered' || ord.status === 'activated'
+                                    ? 'text-emerald-400 border-emerald-500/30'
+                                    : 'text-amber-300 border-amber-500/30'
+                                }`}
+                              >
+                                <option value="processing">PROCESSING</option>
+                                <option value="activated">ACTIVATED</option>
+                                <option value="delivered">DELIVERED</option>
+                              </select>
+                              {ord.credentials?.licenseKey && (
+                                <div className="font-mono text-[10px] text-slate-400 truncate max-w-[140px] select-all" title={ord.credentials.licenseKey}>
+                                  {ord.credentials.licenseKey}
+                                </div>
+                              )}
+                            </div>
                           </td>
 
                           <td className="p-4 text-right">
-                            {ord.status !== 'delivered' ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              {ord.status !== 'delivered' ? (
+                                <button
+                                  onClick={() => {
+                                    setDispatchOrderId(ord.orderId);
+                                    setCustomKey(ord.credentials?.licenseKey || `RYV-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`);
+                                    setCustomInstructions('Your payment has been verified. Account credentials dispatched successfully.');
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] cursor-pointer shadow-sm"
+                                >
+                                  Verify & Dispatch
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setDispatchOrderId(ord.orderId);
+                                    setCustomKey(ord.credentials?.licenseKey || '');
+                                    setCustomInstructions(ord.credentials?.instructions || '');
+                                  }}
+                                  className="text-[11px] text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-900 border border-slate-800 cursor-pointer"
+                                >
+                                  Edit Key
+                                </button>
+                              )}
+
                               <button
-                                onClick={() => {
-                                  setDispatchOrderId(ord.orderId);
-                                  setCustomKey(ord.credentials?.licenseKey || `RYV-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`);
-                                  setCustomInstructions('Your payment has been verified. Account credentials dispatched successfully.');
-                                }}
-                                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] cursor-pointer shadow-sm"
+                                onClick={() => handleDeleteOrder(ord.orderId)}
+                                className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                                title="Delete Order"
                               >
-                                Verify & Dispatch Details
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setDispatchOrderId(ord.orderId);
-                                  setCustomKey(ord.credentials?.licenseKey || '');
-                                  setCustomInstructions(ord.credentials?.instructions || '');
-                                }}
-                                className="text-[11px] text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-900 border border-slate-800"
-                              >
-                                Edit Credentials
-                              </button>
-                            )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1286,9 +1448,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="p-6 rounded-3xl bg-[#090d16] border border-slate-800 space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-white uppercase tracking-wider mb-2">
-                    Top Announcement Bar Ticker Text
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-bold text-white uppercase tracking-wider">
+                      Top Announcement Bar Ticker Text
+                    </label>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        onUpdateAnnouncement(announcementText);
+                        try {
+                          await apiUpdateAnnouncement(announcementText);
+                          alert('Announcement banner saved to database successfully!');
+                        } catch (err) {
+                          console.error(err);
+                        }
+                      }}
+                      className="px-3 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-[11px] font-bold cursor-pointer"
+                    >
+                      Save to Database
+                    </button>
+                  </div>
                   <textarea
                     rows={2}
                     value={announcementText}
