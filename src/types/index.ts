@@ -58,11 +58,16 @@ export interface CustomerOrder {
   subtotalUSD: number;
   discountUSD: number;
   totalUSD: number;
+  coupon?: string;
   paymentMethod: string;
   paymentProof?: string;
   transactionId?: string;
   status: 'processing' | 'activated' | 'delivered';
   createdAt: string;
+  updatedAt?: string;
+  licenseKey?: string;
+  accountEmail?: string;
+  deliveryInstructions?: string;
   credentials?: {
     licenseKey?: string;
     accountEmail?: string;

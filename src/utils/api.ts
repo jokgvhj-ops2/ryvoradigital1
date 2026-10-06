@@ -101,6 +101,22 @@ export async function apiGetOrders(): Promise<(CustomerOrder & { isNew?: boolean
   return data.orders || [];
 }
 
+export async function apiUploadProof(base64Data: string, filename?: string): Promise<string> {
+  const res = await fetch('/api/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: base64Data, filename }),
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || `Failed to upload payment proof (Status ${res.status})`);
+  }
+
+  const data = await res.json();
+  return data.url;
+}
+
 export async function apiCreateOrder(orderPayload: {
   customerEmail: string;
   customerPhone?: string;
@@ -117,8 +133,17 @@ export async function apiCreateOrder(orderPayload: {
   });
 
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.message || 'Failed to submit order to production database');
+    let message = '';
+    try {
+      const errData = await res.json();
+      if (errData && errData.message) {
+        message = errData.message;
+      }
+    } catch {
+      message = `Server responded with status ${res.status} (${res.statusText || 'Error'})`;
+    }
+    console.error('[API] Order submission error:', { status: res.status, message });
+    throw new Error(message || 'Failed to submit order to production database');
   }
 
   const data = await res.json();

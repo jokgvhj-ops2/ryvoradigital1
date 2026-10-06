@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -25,34 +26,52 @@ const INITIAL_COUPONS: PromoCoupon[] = [
 const DEFAULT_ANNOUNCEMENT =
   '✦ USA #1 Digital Tools Reseller ✦ Instant Delivery (60-180s) ✦ 100% Replacement Warranty Guarantee ✦ Code "USA10" for 10% OFF';
 
-// Check if PostgreSQL connection is provided
-const pgConnectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-let pool: pg.Pool | null = null;
-let isPostgres = false;
-
-if (pgConnectionString) {
-  try {
-    pool = new Pool({
-      connectionString: pgConnectionString,
-      ssl:
-        process.env.NODE_ENV === 'production' || !pgConnectionString.includes('localhost')
-          ? { rejectUnauthorized: false }
-          : false,
-      max: 10,
-      idleTimeoutMillis: 30000,
-    });
-    isPostgres = true;
-    console.log('[DB] PostgreSQL pool configured with provided connection string.');
-  } catch (err) {
-    console.warn('[DB] Failed to initialize PostgreSQL pool, falling back to local persistent store:', err);
-    pool = null;
-    isPostgres = false;
-  }
-} else {
-  console.log('[DB] No POSTGRES_URL / DATABASE_URL detected. Running with persistent storage adapter.');
+// -------------------------------------------------------------
+// POSTGRES CONNECTION POOL
+// -------------------------------------------------------------
+function getConnectionString(): string | undefined {
+  return (
+    process.env.POSTGRES_URL ||
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.SUPABASE_DATABASE_URL
+  );
 }
 
-// In-Memory / File Fallback cache
+let pool: pg.Pool | null = null;
+
+export function getPool(): pg.Pool | null {
+  if (pool) return pool;
+
+  const connString = getConnectionString();
+  if (!connString) {
+    return null;
+  }
+
+  try {
+    const isLocalhost = connString.includes('localhost') || connString.includes('127.0.0.1');
+    pool = new Pool({
+      connectionString: connString,
+      ssl: isLocalhost ? false : { rejectUnauthorized: false },
+      max: process.env.VERCEL ? 3 : 10,
+      idleTimeoutMillis: 15000,
+      connectionTimeoutMillis: 10000,
+    });
+
+    pool.on('error', (err) => {
+      console.error('[DB Pool Client Warning]', err.message);
+    });
+
+    console.log('[DB] PostgreSQL pool initialized successfully with secure SSL.');
+    return pool;
+  } catch (err) {
+    console.error('[DB] Failed to construct PostgreSQL pool:', err);
+    return null;
+  }
+}
+
+// In-Memory / File Fallback cache (Local dev / testing fallback)
 interface FallbackDB {
   products: Product[];
   orders: (CustomerOrder & { isNew?: boolean })[];
@@ -66,11 +85,15 @@ let fallbackDB: FallbackDB | null = null;
 const proofCache = new Map<string, { mimeType: string; data: string; filename?: string }>();
 
 function ensureFallbackDirs() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(PROOFS_DIR)) {
-    fs.mkdirSync(PROOFS_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(PROOFS_DIR)) {
+      fs.mkdirSync(PROOFS_DIR, { recursive: true });
+    }
+  } catch {
+    // Ignore in read-only environments
   }
 }
 
@@ -101,29 +124,7 @@ function loadFallbackDB(): FallbackDB {
       }
     }
   } catch (err) {
-    console.error('[DB] Error reading db.json:', err);
-  }
-
-  // Optimize orders: migrate any inline base64 paymentProof into separated proof storage
-  let modified = false;
-  initial.orders = initial.orders.map((o) => {
-    if (o.paymentProof && o.paymentProof.startsWith('data:image/')) {
-      const proofId = `proof-${o.orderId.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const mime = o.paymentProof.split(';')[0]?.replace('data:', '') || 'image/jpeg';
-      proofCache.set(proofId, { mimeType: mime, data: o.paymentProof });
-      try {
-        fs.writeFileSync(path.join(PROOFS_DIR, `${proofId}.json`), JSON.stringify({ mimeType: mime, data: o.paymentProof }));
-      } catch (e) {
-        console.error('Error writing proof file:', e);
-      }
-      modified = true;
-      return { ...o, paymentProof: `/api/proofs/${proofId}` };
-    }
-    return o;
-  });
-
-  if (modified) {
-    saveFallbackDB(initial);
+    console.warn('[DB] Notice: Reading db.json in fallback mode:', err);
   }
 
   fallbackDB = initial;
@@ -135,30 +136,37 @@ function saveFallbackDB(data: FallbackDB) {
     ensureFallbackDirs();
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[DB] Error saving db.json:', err);
+    // In read-only serverless filesystems without Postgres
+    try {
+      const tmpPath = '/tmp/ryvora_db.json';
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch {
+      console.warn('[DB] Fallback store update in memory.');
+    }
   }
 }
 
 // -------------------------------------------------------------
-// POSTGRES SCHEMA INITIALIZATION & MIGRATION
+// DATABASE INITIALIZATION & SCHEMA AUTO-MIGRATION
 // -------------------------------------------------------------
 let isInitialized = false;
 
 export async function initDatabase(): Promise<void> {
   if (isInitialized) return;
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const client = await pool.connect();
+      const client = await currentPool.connect();
       try {
-        console.log('[DB] Checking / creating PostgreSQL tables...');
+        console.log('[DB] Checking / creating PostgreSQL production tables...');
 
         await client.query(`
           CREATE TABLE IF NOT EXISTS products (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             tagline TEXT,
-            category TEXT,
+            category TEXT NOT NULL,
             category_label TEXT,
             icon_name TEXT,
             brand_color TEXT,
@@ -176,6 +184,8 @@ export async function initDatabase(): Promise<void> {
             description TEXT,
             delivery_time TEXT,
             warranty TEXT,
+            image TEXT,
+            availability BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           );
 
@@ -187,12 +197,17 @@ export async function initDatabase(): Promise<void> {
             subtotal_usd NUMERIC NOT NULL,
             discount_usd NUMERIC DEFAULT 0,
             total_usd NUMERIC NOT NULL,
+            coupon TEXT,
             payment_method TEXT NOT NULL,
             payment_proof TEXT,
             transaction_id TEXT,
             status TEXT DEFAULT 'processing',
-            created_at TEXT NOT NULL,
             credentials JSONB,
+            license_key TEXT,
+            account_email TEXT,
+            delivery_instructions TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_new BOOLEAN DEFAULT TRUE
           );
 
@@ -201,7 +216,8 @@ export async function initDatabase(): Promise<void> {
             discount_percent INTEGER NOT NULL,
             description TEXT,
             active BOOLEAN DEFAULT TRUE,
-            usage_count INTEGER DEFAULT 0
+            usage_count INTEGER DEFAULT 0,
+            expiry TEXT
           );
 
           CREATE TABLE IF NOT EXISTS reviews (
@@ -224,6 +240,8 @@ export async function initDatabase(): Promise<void> {
             state TEXT,
             minutes_ago INTEGER DEFAULT 1,
             plan_duration TEXT,
+            proof TEXT,
+            status TEXT DEFAULT 'activated',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           );
 
@@ -241,31 +259,46 @@ export async function initDatabase(): Promise<void> {
           );
         `);
 
-        // Check if data seeding is needed
-        const prodCountRes = await client.query('SELECT COUNT(*) FROM products');
-        const prodCount = parseInt(prodCountRes.rows[0].count, 10);
+        // Migration alters to ensure missing columns exist in existing deployments
+        await client.query(`
+          ALTER TABLE products ADD COLUMN IF NOT EXISTS image TEXT;
+          ALTER TABLE products ADD COLUMN IF NOT EXISTS availability BOOLEAN DEFAULT TRUE;
 
-        if (prodCount === 0) {
-          console.log('[DB] Seeding initial products into PostgreSQL...');
-          const sourceProducts = fallbackDB?.products || PRODUCTS;
-          for (const p of sourceProducts) {
+          ALTER TABLE orders ADD COLUMN IF NOT EXISTS coupon TEXT;
+          ALTER TABLE orders ADD COLUMN IF NOT EXISTS license_key TEXT;
+          ALTER TABLE orders ADD COLUMN IF NOT EXISTS account_email TEXT;
+          ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_instructions TEXT;
+          ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+          ALTER TABLE coupons ADD COLUMN IF NOT EXISTS expiry TEXT;
+
+          ALTER TABLE activations ADD COLUMN IF NOT EXISTS proof TEXT;
+          ALTER TABLE activations ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'activated';
+        `);
+
+        // Seed products if table empty
+        const prodCountRes = await client.query('SELECT COUNT(*) FROM products');
+        if (parseInt(prodCountRes.rows[0].count, 10) === 0) {
+          console.log('[DB] Seeding products into PostgreSQL...');
+          for (const p of PRODUCTS) {
             await client.query(
               `INSERT INTO products (
                 id, name, tagline, category, category_label, icon_name, brand_color, accent_glow,
                 rating, reviews_count, features, retail_price_usd, price_usd, in_stock, popular,
-                featured, badge, allowed_account_types, description, delivery_time, warranty
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                featured, badge, allowed_account_types, description, delivery_time, warranty, availability
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
               ON CONFLICT (id) DO NOTHING`,
               [
                 p.id, p.name, p.tagline, p.category, p.categoryLabel, p.iconName || 'Sparkles',
                 p.brandColor, p.accentGlow, p.rating, p.reviewsCount, JSON.stringify(p.features),
                 p.retailPriceUSD, p.priceUSD, p.inStock, p.popular ?? false, p.featured ?? false,
-                p.badge || null, JSON.stringify(p.allowedAccountTypes), p.description, p.deliveryTime, p.warranty
+                p.badge || null, JSON.stringify(p.allowedAccountTypes), p.description, p.deliveryTime, p.warranty, true
               ]
             );
           }
         }
 
+        // Seed coupons
         const couponCountRes = await client.query('SELECT COUNT(*) FROM coupons');
         if (parseInt(couponCountRes.rows[0].count, 10) === 0) {
           for (const c of INITIAL_COUPONS) {
@@ -277,6 +310,7 @@ export async function initDatabase(): Promise<void> {
           }
         }
 
+        // Seed reviews
         const revCountRes = await client.query('SELECT COUNT(*) FROM reviews');
         if (parseInt(revCountRes.rows[0].count, 10) === 0) {
           for (const r of REVIEWS) {
@@ -288,17 +322,19 @@ export async function initDatabase(): Promise<void> {
           }
         }
 
+        // Seed activations
         const actCountRes = await client.query('SELECT COUNT(*) FROM activations');
         if (parseInt(actCountRes.rows[0].count, 10) === 0) {
           for (const a of LIVE_ACTIVATIONS) {
             await client.query(
-              `INSERT INTO activations (id, product_name, category, customer_masked, city, state, minutes_ago, plan_duration)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
-              [a.id, a.productName, a.category, a.customerMasked, a.city, a.state, a.minutesAgo, a.planDuration]
+              `INSERT INTO activations (id, product_name, category, customer_masked, city, state, minutes_ago, plan_duration, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO NOTHING`,
+              [a.id, a.productName, a.category, a.customerMasked, a.city, a.state, a.minutesAgo, a.planDuration, 'activated']
             );
           }
         }
 
+        // Seed announcement setting
         const settingRes = await client.query("SELECT value FROM settings WHERE key = 'announcement'");
         if (settingRes.rows.length === 0) {
           await client.query(
@@ -307,34 +343,17 @@ export async function initDatabase(): Promise<void> {
           );
         }
 
-        // Migrate existing orders if table is empty and fallback orders exist
-        const orderCountRes = await client.query('SELECT COUNT(*) FROM orders');
-        if (parseInt(orderCountRes.rows[0].count, 10) === 0) {
-          const fallback = loadFallbackDB();
-          for (const o of fallback.orders) {
-            await client.query(
-              `INSERT INTO orders (
-                order_id, customer_email, customer_phone, items, subtotal_usd, discount_usd,
-                total_usd, payment_method, payment_proof, transaction_id, status, created_at, credentials, is_new
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-              ON CONFLICT (order_id) DO NOTHING`,
-              [
-                o.orderId, o.customerEmail, o.customerPhone || null, JSON.stringify(o.items),
-                o.subtotalUSD, o.discountUSD, o.totalUSD, o.paymentMethod, o.paymentProof || null,
-                o.transactionId || null, o.status, o.createdAt, JSON.stringify(o.credentials || null), false
-              ]
-            );
-          }
-        }
-
-        console.log('[DB] PostgreSQL initialization complete.');
+        console.log('[DB] PostgreSQL schema & seed check complete.');
         isInitialized = true;
       } finally {
         client.release();
       }
-    } catch (err) {
-      console.error('[DB] PostgreSQL initialization error, defaulting to fallback adapter:', err);
-      loadFallbackDB();
+    } catch (err: any) {
+      console.error('[DB] PostgreSQL initialization error:', err.message);
+      // Allow fallback if not in Vercel production
+      if (!process.env.VERCEL) {
+        loadFallbackDB();
+      }
       isInitialized = true;
     }
   } else {
@@ -357,19 +376,21 @@ export async function savePaymentProof(dataUriOrBase64: string, filename?: strin
     if (matched) mimeType = matched[1];
   }
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      await pool.query(
+      await currentPool.query(
         `INSERT INTO payment_proofs (id, mime_type, data, filename) VALUES ($1, $2, $3, $4)`,
         [id, mimeType, dataUriOrBase64, filename || 'payment_proof.jpg']
       );
       return `/api/proofs/${id}`;
-    } catch (err) {
-      console.error('[DB] Error saving proof to PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error saving proof to PostgreSQL:', err.message);
+      throw new Error(`Failed to save payment proof to database: ${err.message}`);
     }
   }
 
-  // Fallback persistent storage
+  // Fallback persistent storage (local dev)
   ensureFallbackDirs();
   proofCache.set(id, { mimeType, data: dataUriOrBase64, filename });
   try {
@@ -377,8 +398,8 @@ export async function savePaymentProof(dataUriOrBase64: string, filename?: strin
       path.join(PROOFS_DIR, `${id}.json`),
       JSON.stringify({ mimeType, data: dataUriOrBase64, filename })
     );
-  } catch (err) {
-    console.error('[DB] Error writing proof fallback file:', err);
+  } catch {
+    // If read-only fs, memory cache still holds it
   }
 
   return `/api/proofs/${id}`;
@@ -387,9 +408,10 @@ export async function savePaymentProof(dataUriOrBase64: string, filename?: strin
 export async function getPaymentProof(id: string): Promise<{ mimeType: string; data: string; filename?: string } | null> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('SELECT mime_type, data, filename FROM payment_proofs WHERE id = $1', [id]);
+      const res = await currentPool.query('SELECT mime_type, data, filename FROM payment_proofs WHERE id = $1', [id]);
       if (res.rows.length > 0) {
         return {
           mimeType: res.rows[0].mime_type,
@@ -397,25 +419,24 @@ export async function getPaymentProof(id: string): Promise<{ mimeType: string; d
           filename: res.rows[0].filename,
         };
       }
-    } catch (err) {
-      console.error('[DB] Error querying proof from PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error querying proof from PostgreSQL:', err.message);
     }
   }
 
-  // Fallback cache check
   if (proofCache.has(id)) {
     return proofCache.get(id)!;
   }
 
-  const filePath = path.join(PROOFS_DIR, `${id}.json`);
-  if (fs.existsSync(filePath)) {
-    try {
+  try {
+    const filePath = path.join(PROOFS_DIR, `${id}.json`);
+    if (fs.existsSync(filePath)) {
       const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
       proofCache.set(id, content);
       return content;
-    } catch {
-      return null;
     }
+  } catch {
+    // Ignore error
   }
 
   return null;
@@ -424,30 +445,59 @@ export async function getPaymentProof(id: string): Promise<{ mimeType: string; d
 // -------------------------------------------------------------
 // ORDERS
 // -------------------------------------------------------------
+function mapOrderRow(row: any): CustomerOrder & { isNew?: boolean } {
+  let items = [];
+  try {
+    items = typeof row.items === 'string' ? JSON.parse(row.items) : row.items;
+  } catch {
+    items = [];
+  }
+
+  let creds = undefined;
+  if (row.credentials) {
+    creds = typeof row.credentials === 'string' ? JSON.parse(row.credentials) : row.credentials;
+  } else if (row.license_key || row.account_email || row.delivery_instructions) {
+    creds = {
+      licenseKey: row.license_key || '',
+      accountEmail: row.account_email || '',
+      instructions: row.delivery_instructions || '',
+    };
+  }
+
+  return {
+    orderId: row.order_id,
+    customerEmail: row.customer_email,
+    customerPhone: row.customer_phone || undefined,
+    items,
+    subtotalUSD: parseFloat(row.subtotal_usd),
+    discountUSD: parseFloat(row.discount_usd || 0),
+    totalUSD: parseFloat(row.total_usd),
+    coupon: row.coupon || undefined,
+    paymentMethod: row.payment_method,
+    paymentProof: row.payment_proof || undefined,
+    transactionId: row.transaction_id || undefined,
+    status: row.status as 'processing' | 'activated' | 'delivered',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : undefined,
+    licenseKey: row.license_key || (creds?.licenseKey || undefined),
+    accountEmail: row.account_email || (creds?.accountEmail || undefined),
+    deliveryInstructions: row.delivery_instructions || (creds?.instructions || undefined),
+    credentials: creds,
+    isNew: row.is_new ?? false,
+  };
+}
+
 export async function getOrders(): Promise<(CustomerOrder & { isNew?: boolean })[]> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
-      return res.rows.map((row) => ({
-        orderId: row.order_id,
-        customerEmail: row.customer_email,
-        customerPhone: row.customer_phone || undefined,
-        items: typeof row.items === 'string' ? JSON.parse(row.items) : row.items,
-        subtotalUSD: parseFloat(row.subtotal_usd),
-        discountUSD: parseFloat(row.discount_usd || 0),
-        totalUSD: parseFloat(row.total_usd),
-        paymentMethod: row.payment_method,
-        paymentProof: row.payment_proof || undefined,
-        transactionId: row.transaction_id || undefined,
-        status: row.status as 'processing' | 'activated' | 'delivered',
-        createdAt: row.created_at,
-        credentials: row.credentials ? (typeof row.credentials === 'string' ? JSON.parse(row.credentials) : row.credentials) : undefined,
-        isNew: row.is_new ?? false,
-      }));
-    } catch (err) {
-      console.error('[DB] Error fetching orders from PostgreSQL:', err);
+      const res = await currentPool.query('SELECT * FROM orders ORDER BY created_at DESC');
+      return res.rows.map(mapOrderRow);
+    } catch (err: any) {
+      console.error('[DB] Error fetching orders from PostgreSQL:', err.message);
+      throw new Error(`Database error retrieving orders: ${err.message}`);
     }
   }
 
@@ -458,31 +508,17 @@ export async function getOrders(): Promise<(CustomerOrder & { isNew?: boolean })
 export async function getOrderById(orderId: string): Promise<(CustomerOrder & { isNew?: boolean }) | null> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('SELECT * FROM orders WHERE order_id = $1', [orderId]);
+      const res = await currentPool.query('SELECT * FROM orders WHERE order_id = $1', [orderId]);
       if (res.rows.length > 0) {
-        const row = res.rows[0];
-        return {
-          orderId: row.order_id,
-          customerEmail: row.customer_email,
-          customerPhone: row.customer_phone || undefined,
-          items: typeof row.items === 'string' ? JSON.parse(row.items) : row.items,
-          subtotalUSD: parseFloat(row.subtotal_usd),
-          discountUSD: parseFloat(row.discount_usd || 0),
-          totalUSD: parseFloat(row.total_usd),
-          paymentMethod: row.payment_method,
-          paymentProof: row.payment_proof || undefined,
-          transactionId: row.transaction_id || undefined,
-          status: row.status as 'processing' | 'activated' | 'delivered',
-          createdAt: row.created_at,
-          credentials: row.credentials ? (typeof row.credentials === 'string' ? JSON.parse(row.credentials) : row.credentials) : undefined,
-          isNew: row.is_new ?? false,
-        };
+        return mapOrderRow(res.rows[0]);
       }
       return null;
-    } catch (err) {
-      console.error('[DB] Error getting order from PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error getting order from PostgreSQL:', err.message);
+      throw new Error(`Database error getting order: ${err.message}`);
     }
   }
 
@@ -493,13 +529,22 @@ export async function getOrderById(orderId: string): Promise<(CustomerOrder & { 
 export async function createOrder(order: CustomerOrder & { isNew?: boolean }): Promise<CustomerOrder> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      await pool.query(
+      const nowIso = new Date().toISOString();
+      const creds = order.credentials || {
+        licenseKey: order.licenseKey || '',
+        accountEmail: order.accountEmail || '',
+        instructions: order.deliveryInstructions || '',
+      };
+
+      await currentPool.query(
         `INSERT INTO orders (
           order_id, customer_email, customer_phone, items, subtotal_usd, discount_usd,
-          total_usd, payment_method, payment_proof, transaction_id, status, created_at, credentials, is_new
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          total_usd, coupon, payment_method, payment_proof, transaction_id, status,
+          created_at, updated_at, credentials, license_key, account_email, delivery_instructions, is_new
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
         [
           order.orderId,
           order.customerEmail,
@@ -508,19 +553,31 @@ export async function createOrder(order: CustomerOrder & { isNew?: boolean }): P
           order.subtotalUSD,
           order.discountUSD,
           order.totalUSD,
+          order.coupon || null,
           order.paymentMethod,
           order.paymentProof || null,
           order.transactionId || null,
           order.status || 'processing',
           order.createdAt,
-          JSON.stringify(order.credentials || null),
+          nowIso,
+          JSON.stringify(creds || null),
+          order.licenseKey || creds.licenseKey || null,
+          order.accountEmail || creds.accountEmail || null,
+          order.deliveryInstructions || creds.instructions || null,
           order.isNew ?? true,
         ]
       );
       return order;
-    } catch (err) {
-      console.error('[DB] Error creating order in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Critical error saving order to PostgreSQL:', err.message);
+      throw new Error(`Database error saving order: ${err.message}`);
     }
+  }
+
+  // If in Vercel environment without configured Postgres, error clearly
+  if (process.env.VERCEL) {
+    console.error('[DB FATAL] Running in Vercel production without a configured PostgreSQL database (POSTGRES_URL / DATABASE_URL missing).');
+    throw new Error('Production database is not connected. Please set POSTGRES_URL in Vercel environment variables.');
   }
 
   const db = loadFallbackDB();
@@ -531,11 +588,19 @@ export async function createOrder(order: CustomerOrder & { isNew?: boolean }): P
 
 export async function updateOrder(
   orderId: string,
-  updates: { status?: string; credentials?: any; isNew?: boolean }
+  updates: {
+    status?: string;
+    credentials?: any;
+    isNew?: boolean;
+    licenseKey?: string;
+    accountEmail?: string;
+    deliveryInstructions?: string;
+  }
 ): Promise<CustomerOrder | null> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
       const existing = await getOrderById(orderId);
       if (!existing) return null;
@@ -543,20 +608,46 @@ export async function updateOrder(
       const newStatus = updates.status || existing.status;
       const newCreds = updates.credentials ? { ...existing.credentials, ...updates.credentials } : existing.credentials;
       const newIsNew = updates.isNew !== undefined ? updates.isNew : existing.isNew;
+      const newLicense = updates.licenseKey || newCreds?.licenseKey || existing.licenseKey || '';
+      const newAccEmail = updates.accountEmail || newCreds?.accountEmail || existing.accountEmail || '';
+      const newInstructions = updates.deliveryInstructions || newCreds?.instructions || existing.deliveryInstructions || '';
+      const nowIso = new Date().toISOString();
 
-      await pool.query(
-        `UPDATE orders SET status = $1, credentials = $2, is_new = $3 WHERE order_id = $4`,
-        [newStatus, JSON.stringify(newCreds || null), newIsNew, orderId]
+      await currentPool.query(
+        `UPDATE orders SET
+          status = $1,
+          credentials = $2,
+          license_key = $3,
+          account_email = $4,
+          delivery_instructions = $5,
+          is_new = $6,
+          updated_at = $7
+        WHERE order_id = $8`,
+        [
+          newStatus,
+          JSON.stringify(newCreds || null),
+          newLicense || null,
+          newAccEmail || null,
+          newInstructions || null,
+          newIsNew,
+          nowIso,
+          orderId,
+        ]
       );
 
       return {
         ...existing,
         status: newStatus as any,
         credentials: newCreds,
+        licenseKey: newLicense,
+        accountEmail: newAccEmail,
+        deliveryInstructions: newInstructions,
         isNew: newIsNew,
+        updatedAt: nowIso,
       };
-    } catch (err) {
-      console.error('[DB] Error updating order in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error updating order in PostgreSQL:', err.message);
+      throw new Error(`Database error updating order: ${err.message}`);
     }
   }
 
@@ -571,9 +662,11 @@ export async function updateOrder(
       ...updates.credentials,
     };
   }
-  if (updates.isNew !== undefined) {
-    db.orders[idx].isNew = updates.isNew;
-  }
+  if (updates.licenseKey) db.orders[idx].licenseKey = updates.licenseKey;
+  if (updates.accountEmail) db.orders[idx].accountEmail = updates.accountEmail;
+  if (updates.deliveryInstructions) db.orders[idx].deliveryInstructions = updates.deliveryInstructions;
+  if (updates.isNew !== undefined) db.orders[idx].isNew = updates.isNew;
+  db.orders[idx].updatedAt = new Date().toISOString();
 
   saveFallbackDB(db);
   return db.orders[idx];
@@ -582,12 +675,14 @@ export async function updateOrder(
 export async function deleteOrder(orderId: string): Promise<boolean> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('DELETE FROM orders WHERE order_id = $1', [orderId]);
+      const res = await currentPool.query('DELETE FROM orders WHERE order_id = $1', [orderId]);
       return (res.rowCount ?? 0) > 0;
-    } catch (err) {
-      console.error('[DB] Error deleting order in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error deleting order in PostgreSQL:', err.message);
+      throw new Error(`Database error deleting order: ${err.message}`);
     }
   }
 
@@ -604,37 +699,56 @@ export async function deleteOrder(orderId: string): Promise<boolean> {
 // -------------------------------------------------------------
 // PRODUCTS
 // -------------------------------------------------------------
+function mapProductRow(p: any): Product {
+  let features = [];
+  try {
+    features = typeof p.features === 'string' ? JSON.parse(p.features) : p.features;
+  } catch {
+    features = [];
+  }
+
+  let allowedAccountTypes = ['private_account'];
+  try {
+    allowedAccountTypes = typeof p.allowed_account_types === 'string' ? JSON.parse(p.allowed_account_types) : p.allowed_account_types;
+  } catch {
+    allowedAccountTypes = ['private_account'];
+  }
+
+  return {
+    id: p.id,
+    name: p.name,
+    tagline: p.tagline || '',
+    category: p.category as any,
+    categoryLabel: p.category_label || '',
+    iconName: p.icon_name || 'Sparkles',
+    brandColor: p.brand_color || '#00E5FF',
+    accentGlow: p.accent_glow || 'rgba(0, 229, 255, 0.25)',
+    rating: parseFloat(p.rating || 5.0),
+    reviewsCount: parseInt(p.reviews_count || 1, 10),
+    features: Array.isArray(features) ? features : [],
+    retailPriceUSD: parseFloat(p.retail_price_usd),
+    priceUSD: parseFloat(p.price_usd),
+    inStock: p.in_stock ?? p.availability ?? true,
+    popular: p.popular ?? false,
+    featured: p.featured ?? false,
+    badge: p.badge || undefined,
+    allowedAccountTypes: (Array.isArray(allowedAccountTypes) ? allowedAccountTypes : ['private_account']) as any,
+    description: p.description || '',
+    deliveryTime: p.delivery_time || 'Instant (2-5 mins)',
+    warranty: p.warranty || 'Full 30-Day Auto-Replacement Warranty',
+  };
+}
+
 export async function getProducts(): Promise<Product[]> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('SELECT * FROM products ORDER BY price_usd ASC');
-      return res.rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        tagline: row.tagline || '',
-        category: row.category,
-        categoryLabel: row.category_label,
-        iconName: row.icon_name || 'Sparkles',
-        brandColor: row.brand_color,
-        accentGlow: row.accent_glow,
-        rating: parseFloat(row.rating),
-        reviewsCount: parseInt(row.reviews_count, 10),
-        features: typeof row.features === 'string' ? JSON.parse(row.features) : row.features,
-        retailPriceUSD: parseFloat(row.retail_price_usd),
-        priceUSD: parseFloat(row.price_usd),
-        inStock: row.in_stock,
-        popular: row.popular,
-        featured: row.featured,
-        badge: row.badge || undefined,
-        allowedAccountTypes: typeof row.allowed_account_types === 'string' ? JSON.parse(row.allowed_account_types) : row.allowed_account_types,
-        description: row.description,
-        deliveryTime: row.delivery_time,
-        warranty: row.warranty,
-      }));
-    } catch (err) {
-      console.error('[DB] Error getting products from PostgreSQL:', err);
+      const res = await currentPool.query('SELECT * FROM products ORDER BY name ASC');
+      return res.rows.map(mapProductRow);
+    } catch (err: any) {
+      console.error('[DB] Error getting products from PostgreSQL:', err.message);
     }
   }
 
@@ -645,38 +759,14 @@ export async function getProducts(): Promise<Product[]> {
 export async function getProductById(id: string): Promise<Product | null> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
-      if (res.rows.length > 0) {
-        const row = res.rows[0];
-        return {
-          id: row.id,
-          name: row.name,
-          tagline: row.tagline || '',
-          category: row.category,
-          categoryLabel: row.category_label,
-          iconName: row.icon_name || 'Sparkles',
-          brandColor: row.brand_color,
-          accentGlow: row.accent_glow,
-          rating: parseFloat(row.rating),
-          reviewsCount: parseInt(row.reviews_count, 10),
-          features: typeof row.features === 'string' ? JSON.parse(row.features) : row.features,
-          retailPriceUSD: parseFloat(row.retail_price_usd),
-          priceUSD: parseFloat(row.price_usd),
-          inStock: row.in_stock,
-          popular: row.popular,
-          featured: row.featured,
-          badge: row.badge || undefined,
-          allowedAccountTypes: typeof row.allowed_account_types === 'string' ? JSON.parse(row.allowed_account_types) : row.allowed_account_types,
-          description: row.description,
-          deliveryTime: row.delivery_time,
-          warranty: row.warranty,
-        };
-      }
+      const res = await currentPool.query('SELECT * FROM products WHERE id = $1', [id]);
+      if (res.rows.length > 0) return mapProductRow(res.rows[0]);
       return null;
-    } catch (err) {
-      console.error('[DB] Error getting product by id from PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error getting product by ID from PostgreSQL:', err.message);
     }
   }
 
@@ -684,60 +774,75 @@ export async function getProductById(id: string): Promise<Product | null> {
   return db.products.find((p) => p.id === id) || null;
 }
 
-export async function createProduct(prod: Product): Promise<Product> {
+export async function createProduct(product: Product): Promise<Product> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      await pool.query(
+      await currentPool.query(
         `INSERT INTO products (
           id, name, tagline, category, category_label, icon_name, brand_color, accent_glow,
           rating, reviews_count, features, retail_price_usd, price_usd, in_stock, popular,
-          featured, badge, allowed_account_types, description, delivery_time, warranty
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+          featured, badge, allowed_account_types, description, delivery_time, warranty, availability
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
         ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name, tagline = EXCLUDED.tagline, price_usd = EXCLUDED.price_usd`,
+          name = EXCLUDED.name,
+          price_usd = EXCLUDED.price_usd,
+          retail_price_usd = EXCLUDED.retail_price_usd,
+          features = EXCLUDED.features,
+          in_stock = EXCLUDED.in_stock,
+          availability = EXCLUDED.in_stock`,
         [
-          prod.id, prod.name, prod.tagline, prod.category, prod.categoryLabel, prod.iconName || 'Sparkles',
-          prod.brandColor, prod.accentGlow, prod.rating, prod.reviewsCount, JSON.stringify(prod.features),
-          prod.retailPriceUSD, prod.priceUSD, prod.inStock, prod.popular ?? false, prod.featured ?? false,
-          prod.badge || null, JSON.stringify(prod.allowedAccountTypes), prod.description, prod.deliveryTime, prod.warranty
+          product.id, product.name, product.tagline, product.category, product.categoryLabel,
+          product.iconName, product.brandColor, product.accentGlow, product.rating, product.reviewsCount,
+          JSON.stringify(product.features), product.retailPriceUSD, product.priceUSD, product.inStock,
+          product.popular ?? false, product.featured ?? false, product.badge || null,
+          JSON.stringify(product.allowedAccountTypes), product.description, product.deliveryTime, product.warranty, product.inStock
         ]
       );
-      return prod;
-    } catch (err) {
-      console.error('[DB] Error creating product in PostgreSQL:', err);
+      return product;
+    } catch (err: any) {
+      console.error('[DB] Error creating product in PostgreSQL:', err.message);
+      throw new Error(`Database error saving product: ${err.message}`);
     }
   }
 
   const db = loadFallbackDB();
-  db.products.unshift(prod);
+  db.products.push(product);
   saveFallbackDB(db);
-  return prod;
+  return product;
 }
 
 export async function updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
       const existing = await getProductById(id);
       if (!existing) return null;
 
       const merged = { ...existing, ...updates };
-      await pool.query(
+
+      await currentPool.query(
         `UPDATE products SET
-          name = $1, tagline = $2, price_usd = $3, retail_price_usd = $4, in_stock = $5,
-          features = $6, description = $7, delivery_time = $8, warranty = $9
-         WHERE id = $10`,
+          name = $1, tagline = $2, category = $3, price_usd = $4, retail_price_usd = $5,
+          in_stock = $6, availability = $6, popular = $7, featured = $8, badge = $9,
+          features = $10, allowed_account_types = $11, description = $12
+        WHERE id = $13`,
         [
-          merged.name, merged.tagline, merged.priceUSD, merged.retailPriceUSD, merged.inStock,
-          JSON.stringify(merged.features), merged.description, merged.deliveryTime, merged.warranty, id
+          merged.name, merged.tagline, merged.category, merged.priceUSD, merged.retailPriceUSD,
+          merged.inStock, merged.popular ?? false, merged.featured ?? false, merged.badge || null,
+          JSON.stringify(merged.features), JSON.stringify(merged.allowedAccountTypes), merged.description,
+          id
         ]
       );
+
       return merged;
-    } catch (err) {
-      console.error('[DB] Error updating product in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error updating product in PostgreSQL:', err.message);
+      throw new Error(`Database error updating product: ${err.message}`);
     }
   }
 
@@ -753,12 +858,14 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
 export async function deleteProduct(id: string): Promise<boolean> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('DELETE FROM products WHERE id = $1', [id]);
+      const res = await currentPool.query('DELETE FROM products WHERE id = $1', [id]);
       return (res.rowCount ?? 0) > 0;
-    } catch (err) {
-      console.error('[DB] Error deleting product in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error deleting product in PostgreSQL:', err.message);
+      throw new Error(`Database error deleting product: ${err.message}`);
     }
   }
 
@@ -778,18 +885,19 @@ export async function deleteProduct(id: string): Promise<boolean> {
 export async function getCoupons(): Promise<PromoCoupon[]> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('SELECT * FROM coupons ORDER BY code ASC');
+      const res = await currentPool.query('SELECT * FROM coupons ORDER BY code ASC');
       return res.rows.map((r) => ({
         code: r.code,
-        discountPercent: parseInt(r.discount_percent, 10),
+        discountPercent: r.discount_percent,
         description: r.description,
         active: r.active,
-        usageCount: parseInt(r.usage_count || 0, 10),
+        usageCount: r.usage_count,
       }));
-    } catch (err) {
-      console.error('[DB] Error getting coupons from PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error getting coupons from PostgreSQL:', err.message);
     }
   }
 
@@ -799,75 +907,85 @@ export async function getCoupons(): Promise<PromoCoupon[]> {
 
 export async function getCouponByCode(code: string): Promise<PromoCoupon | null> {
   await initDatabase();
-  const cleanCode = code.trim().toUpperCase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('SELECT * FROM coupons WHERE UPPER(code) = $1', [cleanCode]);
+      const res = await currentPool.query('SELECT * FROM coupons WHERE UPPER(code) = UPPER($1)', [code]);
       if (res.rows.length > 0) {
         const r = res.rows[0];
         return {
           code: r.code,
-          discountPercent: parseInt(r.discount_percent, 10),
+          discountPercent: r.discount_percent,
           description: r.description,
           active: r.active,
-          usageCount: parseInt(r.usage_count || 0, 10),
+          usageCount: r.usage_count,
         };
       }
       return null;
-    } catch (err) {
-      console.error('[DB] Error querying coupon from PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error querying coupon from PostgreSQL:', err.message);
     }
   }
 
   const db = loadFallbackDB();
-  return db.coupons.find((c) => c.code.toUpperCase() === cleanCode) || null;
+  return db.coupons.find((c) => c.code.toUpperCase() === code.toUpperCase()) || null;
 }
 
 export async function createCoupon(coupon: PromoCoupon): Promise<PromoCoupon> {
   await initDatabase();
-  coupon.code = coupon.code.toUpperCase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      await pool.query(
+      await currentPool.query(
         `INSERT INTO coupons (code, discount_percent, description, active, usage_count)
          VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (code) DO UPDATE SET discount_percent = EXCLUDED.discount_percent, active = EXCLUDED.active`,
-        [coupon.code, coupon.discountPercent, coupon.description, coupon.active, coupon.usageCount]
+         ON CONFLICT (code) DO UPDATE SET
+          discount_percent = EXCLUDED.discount_percent,
+          description = EXCLUDED.description,
+          active = EXCLUDED.active,
+          usage_count = EXCLUDED.usage_count`,
+        [coupon.code.toUpperCase(), coupon.discountPercent, coupon.description, coupon.active, coupon.usageCount]
       );
       return coupon;
-    } catch (err) {
-      console.error('[DB] Error creating coupon in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error creating coupon in PostgreSQL:', err.message);
+      throw new Error(`Database error saving coupon: ${err.message}`);
     }
   }
 
   const db = loadFallbackDB();
-  db.coupons.push(coupon);
+  const idx = db.coupons.findIndex((c) => c.code.toUpperCase() === coupon.code.toUpperCase());
+  if (idx > -1) {
+    db.coupons[idx] = coupon;
+  } else {
+    db.coupons.push(coupon);
+  }
   saveFallbackDB(db);
   return coupon;
 }
 
 export async function toggleCoupon(code: string): Promise<PromoCoupon | null> {
   await initDatabase();
-  const cleanCode = code.toUpperCase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const existing = await getCouponByCode(cleanCode);
+      const existing = await getCouponByCode(code);
       if (!existing) return null;
-      const newActive = !existing.active;
-      await pool.query('UPDATE coupons SET active = $1 WHERE UPPER(code) = $2', [newActive, cleanCode]);
-      return { ...existing, active: newActive };
-    } catch (err) {
-      console.error('[DB] Error toggling coupon in PostgreSQL:', err);
+      const nextActive = !existing.active;
+      await currentPool.query('UPDATE coupons SET active = $1 WHERE UPPER(code) = UPPER($2)', [nextActive, code]);
+      return { ...existing, active: nextActive };
+    } catch (err: any) {
+      console.error('[DB] Error toggling coupon in PostgreSQL:', err.message);
+      throw new Error(`Database error updating coupon: ${err.message}`);
     }
   }
 
   const db = loadFallbackDB();
-  const idx = db.coupons.findIndex((c) => c.code.toUpperCase() === cleanCode);
+  const idx = db.coupons.findIndex((c) => c.code.toUpperCase() === code.toUpperCase());
   if (idx === -1) return null;
-
   db.coupons[idx].active = !db.coupons[idx].active;
   saveFallbackDB(db);
   return db.coupons[idx];
@@ -875,20 +993,21 @@ export async function toggleCoupon(code: string): Promise<PromoCoupon | null> {
 
 export async function deleteCoupon(code: string): Promise<boolean> {
   await initDatabase();
-  const cleanCode = code.toUpperCase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('DELETE FROM coupons WHERE UPPER(code) = $1', [cleanCode]);
+      const res = await currentPool.query('DELETE FROM coupons WHERE UPPER(code) = UPPER($1)', [code]);
       return (res.rowCount ?? 0) > 0;
-    } catch (err) {
-      console.error('[DB] Error deleting coupon in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error deleting coupon in PostgreSQL:', err.message);
+      throw new Error(`Database error deleting coupon: ${err.message}`);
     }
   }
 
   const db = loadFallbackDB();
   const len = db.coupons.length;
-  db.coupons = db.coupons.filter((c) => c.code.toUpperCase() !== cleanCode);
+  db.coupons = db.coupons.filter((c) => c.code.toUpperCase() !== code.toUpperCase());
   if (db.coupons.length !== len) {
     saveFallbackDB(db);
     return true;
@@ -902,9 +1021,10 @@ export async function deleteCoupon(code: string): Promise<boolean> {
 export async function getReviews(): Promise<CustomerReview[]> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('SELECT * FROM reviews ORDER BY id ASC');
+      const res = await currentPool.query('SELECT * FROM reviews ORDER BY id ASC');
       return res.rows.map((r) => ({
         id: r.id,
         author: r.author,
@@ -915,8 +1035,8 @@ export async function getReviews(): Promise<CustomerReview[]> {
         date: r.date,
         verified: r.verified,
       }));
-    } catch (err) {
-      console.error('[DB] Error getting reviews from PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error getting reviews from PostgreSQL:', err.message);
     }
   }
 
@@ -930,9 +1050,10 @@ export async function getReviews(): Promise<CustomerReview[]> {
 export async function getActivations(): Promise<LiveActivation[]> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('SELECT * FROM activations ORDER BY created_at DESC LIMIT 25');
+      const res = await currentPool.query('SELECT * FROM activations ORDER BY created_at DESC LIMIT 25');
       return res.rows.map((r) => ({
         id: r.id,
         productName: r.product_name,
@@ -943,8 +1064,8 @@ export async function getActivations(): Promise<LiveActivation[]> {
         minutesAgo: r.minutes_ago,
         planDuration: r.plan_duration,
       }));
-    } catch (err) {
-      console.error('[DB] Error getting activations from PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error getting activations from PostgreSQL:', err.message);
     }
   }
 
@@ -955,16 +1076,18 @@ export async function getActivations(): Promise<LiveActivation[]> {
 export async function createActivation(act: LiveActivation): Promise<LiveActivation> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      await pool.query(
-        `INSERT INTO activations (id, product_name, category, customer_masked, city, state, minutes_ago, plan_duration)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [act.id, act.productName, act.category, act.customerMasked, act.city, act.state, act.minutesAgo, act.planDuration]
+      await currentPool.query(
+        `INSERT INTO activations (id, product_name, category, customer_masked, city, state, minutes_ago, plan_duration, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [act.id, act.productName, act.category, act.customerMasked, act.city, act.state, act.minutesAgo, act.planDuration, 'activated']
       );
       return act;
-    } catch (err) {
-      console.error('[DB] Error creating activation in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error creating activation in PostgreSQL:', err.message);
+      throw new Error(`Database error saving activation: ${err.message}`);
     }
   }
 
@@ -978,12 +1101,14 @@ export async function createActivation(act: LiveActivation): Promise<LiveActivat
 export async function deleteActivation(id: string): Promise<boolean> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query('DELETE FROM activations WHERE id = $1', [id]);
+      const res = await currentPool.query('DELETE FROM activations WHERE id = $1', [id]);
       return (res.rowCount ?? 0) > 0;
-    } catch (err) {
-      console.error('[DB] Error deleting activation in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error deleting activation in PostgreSQL:', err.message);
+      throw new Error(`Database error deleting activation: ${err.message}`);
     }
   }
 
@@ -1003,12 +1128,13 @@ export async function deleteActivation(id: string): Promise<boolean> {
 export async function getAnnouncement(): Promise<string> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      const res = await pool.query("SELECT value FROM settings WHERE key = 'announcement'");
+      const res = await currentPool.query("SELECT value FROM settings WHERE key = 'announcement'");
       if (res.rows.length > 0) return res.rows[0].value;
-    } catch (err) {
-      console.error('[DB] Error getting announcement from PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error getting announcement from PostgreSQL:', err.message);
     }
   }
 
@@ -1019,15 +1145,17 @@ export async function getAnnouncement(): Promise<string> {
 export async function updateAnnouncement(text: string): Promise<string> {
   await initDatabase();
 
-  if (isPostgres && pool) {
+  const currentPool = getPool();
+  if (currentPool) {
     try {
-      await pool.query(
+      await currentPool.query(
         "INSERT INTO settings (key, value) VALUES ('announcement', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
         [text]
       );
       return text;
-    } catch (err) {
-      console.error('[DB] Error updating announcement in PostgreSQL:', err);
+    } catch (err: any) {
+      console.error('[DB] Error updating announcement in PostgreSQL:', err.message);
+      throw new Error(`Database error updating announcement: ${err.message}`);
     }
   }
 

@@ -254,6 +254,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
       subtotalUSD: verifiedSubtotalUSD,
       discountUSD: verifiedDiscountUSD,
       totalUSD: verifiedTotalUSD,
+      coupon: couponCode ? String(couponCode).trim().toUpperCase() : undefined,
       paymentMethod: paymentMethod.trim(),
       paymentProof: savedProofUrl,
       transactionId: transactionId ? String(transactionId).trim() : undefined,
@@ -389,9 +390,16 @@ app.get('/api/orders/track', async (req: Request, res: Response) => {
 app.patch('/api/orders/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     const orderId = req.params.id;
-    const { status, credentials, isNew } = req.body || {};
+    const { status, credentials, isNew, licenseKey, accountEmail, deliveryInstructions } = req.body || {};
 
-    const updated = await updateOrder(orderId, { status, credentials, isNew });
+    const updated = await updateOrder(orderId, {
+      status,
+      credentials,
+      isNew,
+      licenseKey,
+      accountEmail,
+      deliveryInstructions,
+    });
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
     }

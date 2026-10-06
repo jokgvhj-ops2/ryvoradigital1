@@ -1,8 +1,39 @@
 import React, { useState, useRef } from 'react';
-import { X, Trash2, ShoppingBag, ShieldCheck, Zap, ArrowRight, Tag, CreditCard, Check, Upload, Image as ImageIcon, Copy, AlertCircle } from 'lucide-react';
+import { X, Trash2, ShoppingBag, ShieldCheck, Zap, ArrowRight, Tag, CreditCard, Check, Upload, Image as ImageIcon, Copy, AlertCircle, Loader2 } from 'lucide-react';
 import { CartItem, CurrencyCode, CustomerOrder } from '../types';
 import { formatPrice } from '../utils/currency';
-import { apiCreateOrder } from '../utils/api';
+import { apiCreateOrder, apiUploadProof } from '../utils/api';
+
+function compressImage(file: File, maxWidth = 1600, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(e.target?.result as string);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -35,6 +66,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [transactionId, setTransactionId] = useState('');
   const [paymentProof, setPaymentProof] = useState<string | null>(null);
   const [paymentProofName, setPaymentProofName] = useState<string>('');
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [copiedInfo, setCopiedInfo] = useState(false);
@@ -62,7 +94,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -71,19 +103,30 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       return;
     }
 
-    if (file.size > 15 * 1024 * 1024) {
-      setFormError('Image size exceeds 15MB limit. Please choose a smaller image.');
+    if (file.size > 20 * 1024 * 1024) {
+      setFormError('Image size exceeds 20MB limit. Please choose a smaller image.');
       return;
     }
 
     setFormError('');
     setPaymentProofName(file.name);
+    setIsUploadingProof(true);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPaymentProof(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressedData = await compressImage(file);
+      const proofUrl = await apiUploadProof(compressedData, file.name);
+      setPaymentProof(proofUrl);
+    } catch (err: any) {
+      console.warn('Direct upload error, falling back to local compression:', err);
+      try {
+        const compressedData = await compressImage(file);
+        setPaymentProof(compressedData);
+      } catch {
+        setFormError('Could not process this screenshot. Please try a different image.');
+      }
+    } finally {
+      setIsUploadingProof(false);
+    }
   };
 
   const handleCopyPaymentInfo = (text: string) => {
@@ -128,6 +171,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       return;
     }
 
+    if (isUploadingProof) {
+      setFormError('Please wait a moment for the payment screenshot to finish uploading.');
+      return;
+    }
+
     if (!paymentProof) {
       setFormError('Please attach a screenshot of your payment receipt before submitting.');
       return;
@@ -137,13 +185,24 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     setIsSubmitting(true);
 
     try {
+      let finalProof = paymentProof;
+      // If proof is still data url, upload it first to save lightweight URL in DB
+      if (finalProof.startsWith('data:image/')) {
+        try {
+          finalProof = await apiUploadProof(finalProof, paymentProofName || 'screenshot.jpg');
+          setPaymentProof(finalProof);
+        } catch (uploadErr) {
+          console.warn('Pre-checkout upload warning:', uploadErr);
+        }
+      }
+
       const newOrder = await apiCreateOrder({
         customerEmail: customerEmail.trim(),
         customerPhone: customerPhone.trim() || undefined,
         items: [...items],
         couponCode: couponCode.trim() || undefined,
         paymentMethod: currentPayInfo.name,
-        paymentProof: paymentProof,
+        paymentProof: finalProof,
         transactionId: transactionId.trim() || undefined,
       });
 
@@ -444,15 +503,24 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 {!paymentProof ? (
                   <button
                     type="button"
+                    disabled={isUploadingProof}
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full p-4 rounded-xl border-2 border-dashed border-slate-700 hover:border-emerald-500/60 bg-slate-950/60 hover:bg-slate-900/40 text-center transition-all cursor-pointer group flex flex-col items-center justify-center gap-2"
+                    className="w-full p-4 rounded-xl border-2 border-dashed border-slate-700 hover:border-emerald-500/60 bg-slate-950/60 hover:bg-slate-900/40 text-center transition-all cursor-pointer group flex flex-col items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                   >
                     <div className="w-10 h-10 rounded-full bg-slate-900 group-hover:bg-emerald-950/40 border border-slate-800 group-hover:border-emerald-500/40 flex items-center justify-center text-slate-400 group-hover:text-emerald-400 transition-colors">
-                      <Upload className="w-5 h-5" />
+                      {isUploadingProof ? (
+                        <Loader2 className="w-5 h-5 animate-spin text-emerald-400" />
+                      ) : (
+                        <Upload className="w-5 h-5" />
+                      )}
                     </div>
                     <div>
-                      <span className="text-xs font-bold text-white block">Click to upload payment screenshot</span>
-                      <span className="text-[10px] text-slate-400">PNG, JPG, or screenshot image (Max 15MB)</span>
+                      <span className="text-xs font-bold text-white block">
+                        {isUploadingProof ? 'Optimizing & uploading screenshot...' : 'Click to upload payment screenshot'}
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {isUploadingProof ? 'Securing image to persistent cloud storage...' : 'PNG, JPG, or screenshot image (Max 20MB)'}
+                      </span>
                     </div>
                   </button>
                 ) : (
